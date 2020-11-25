@@ -1,0 +1,44 @@
+#!/bin/bash
+# Source this to load the full environment that hutch python uses
+# This file can be modified in several places for dev settings
+
+# pcds-envs version
+export CONDA_ENVNAME="pcds-3.4.2"
+# In case you want dev dev
+#export CONDA_ENVNAME="dev"
+
+# Settings
+export HUTCH="rix"
+export LOCAL_BASE="/u1/rixopr/conda_envs"
+export NFS_BASE="/cds/group/pcds/pyps/conda/py36"
+USE_LOCAL="1"
+
+# Clear the user's old env variables
+unset PYTHONPATH
+unset LD_LIBRARY_PATH
+
+# Helpers
+LOCAL_ENV="${LOCAL_BASE}/${CONDA_ENVNAME}"
+HERE=`dirname $(readlink -f $0)`
+
+# Determine whether to use hard drive env or weka
+if [ -n "${USE_LOCAL}" ] && [ -d "${LOCAL_ENV}" ]; then
+  echo "Loading local disk python env ${CONDA_ENVNAME}"
+  source "${LOCAL_ENV}/bin/activate"
+else
+  echo "Loading WEKA python env ${CONDA_ENVNAME}"
+  source "${NFS_BASE}/etc/profile.d/conda.sh"
+  conda activate "${CONDA_ENVNAME}"
+fi
+
+# Standard dev path: local only
+export PYTHONPATH="${HERE}:${HERE}/dev/devpath"
+# Expanded hutch-python dev common path: changes specifically for hutch-python
+#export PYTHONPATH="${HERE}:${HERE}/dev/devpath:${HERE}/../common/dev/devpath"
+# Including dev_conda path: dev changes for other apps
+#export PYTHONPATH="${HERE}:${HERE}/dev/devpath:/cds/group/pcds/pyps/apps/dev/pythonpath/"
+
+# Activates pydaq, pycdb, pyami
+source pcdsdaq_lib_setup
+# Sets our bash prompt prefix
+export CONDA_PROMPT_MODIFIER="(${HUTCH}-${CONDA_ENVNAME})"
