@@ -3,7 +3,7 @@
 # This file can be modified in several places for dev settings
 
 # pcds-envs version
-export CONDA_ENVNAME="pcds-3.4.2"
+export CONDA_ENVNAME="pcds-4.1.4"
 # In case you want dev dev
 #export CONDA_ENVNAME="dev"
 
@@ -19,7 +19,7 @@ unset LD_LIBRARY_PATH
 
 # Helpers
 LOCAL_ENV="${LOCAL_BASE}/${CONDA_ENVNAME}"
-HERE=`dirname $(readlink -f $0)`
+HERE=`dirname $(readlink -f $BASH_SOURCE)`
 
 # Determine whether to use hard drive env or weka
 if [ -n "${USE_LOCAL}" ] && [ -d "${LOCAL_ENV}" ]; then
