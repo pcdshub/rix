@@ -1,8 +1,10 @@
 from types import SimpleNamespace
 
+import numpy as np
+
 from bluesky import preprocessors as bpp, plan_stubs as bps
 from nabs import plans as nbp
-from ophyd import Device, Component as Cpt, EpicsSignal, Signal
+from ophyd import Device, Component as Cpt, EpicsSignal, EpicsSignalRO, Signal
 from pcdsdevices.epics_motor import BeckhoffAxis
 from pcdsdevices.sim import SlowMotor
 from rix.rix_daq_rework.DaqControl import DaqControl
@@ -91,6 +93,8 @@ def interpolation_mono_vernier_duration_scan(
     def sub_and_move():
         nonlocal cbid
 
+        yield from bps.null()
+        print('Starting Vernier putter')
         cbid = mono_grating.subscribe(update_vernier)
         return (
             yield from nbp.duration_scan(
@@ -102,6 +106,7 @@ def interpolation_mono_vernier_duration_scan(
 
     def cleanup_sub():
         yield from bps.null()
+        print('Cleaning up Vernier putter')
         mono_grating.unsubscribe(cbid)
 
     return (
@@ -166,13 +171,48 @@ scan_devices = SimpleNamespace()
 def setup_scan_devices():
     if not scan_devices.__dict__:
         scan_devices.mono_grating = BeckhoffAxis('SP1K1:MONO:MMS:G_PI', name='mono_g_pi')
-        scan_devices.energy_req = EpicsSignal('RIX:USER:MCC:EPHOTK:VER', name='vernier_energy')
+        #scan_devices.energy_req = EpicsSignal('RIX:USER:MCC:EPHOTK:VER', name='vernier_energy')
+        #8:30PM 5/26/2021 Alberto says he's listening to EPHOTK not EPHOTK:VER
+        scan_devices.energy_req = EpicsSignal('RIX:USER:MCC:EPHOTK', name='vernier_energy')
         scan_devices.config = MonoVernierConfig()
+        scan_devices.acr_ephot_ref = EpicsSignal('RIX:USER:MCC:EPHOTK:REF1', name='acr_ref')
+        scan_devices.energy_calc = EpicsSignalRO('SP1K1:MONO:CALC:ENERGY')
+        scan_devices.pre_mirror_pos = EpicsSignalRO('SP1K1:MONO:MMS:M_PI.RBV')
+
+
+def calc_mono_ev(grating=None, pre_mirror=None):
+    setup_scan_devices()
+    if grating is None:
+        grating = scan_devices.mono_grating.position
+    if pre_mirror is None:
+        pre_mirror = scan_devices.pre_mirror_pos.get()
+
+    # Calculation copied from Alex Reid's email with minimal edits
+
+    # Constants:
+    D = 5e4 # ruling density in lines per meter
+    c = 299792458 # speed of light
+    h = 6.62607015E-34 # Plank's const
+    el = 1.602176634E-19 # elemental charge
+    b = 0.03662 # beam from MR1K1 design value in radians
+    ex = 0.1221413 # exit trajectory design value in radians
+
+    # Inputs:
+    # grating pitch remove offset and convert to rad
+    g = (grating - 63358)/1e6
+    # pre mirror pitch remove offset and convert to rad
+    p = (pre_mirror - 90641)/1e6
+
+    # Calculation
+    alpha = np.pi/2 - g + 2*p - b
+    beta = np.pi/2 + g - ex
+    # Energy in eV
+    return h*c*D/(el*(np.sin(alpha)-np.sin(beta)))
 
 
 class FixSlowMotor(SlowMotor):
     def stop(self, success=True):
-            super().stop()
+        super().stop()
 
 
 def mono_vernier_scan(
@@ -197,11 +237,18 @@ def mono_vernier_scan(
     """
     setup_scan_devices()
     if fake_mono:
-        mono_grating = FixSlowMotor(name='fake_mono')
+        if urad_bounds is not None:
+            start_pos = urad_bounds[0]
+        else:
+            start_pos = scan_devices.config.ev_to_urad(ev_bounds[0])
+        mono_grating = FixSlowMotor(name='fake_mono', init_pos=start_pos-1)
     else:
         mono_grating = scan_devices.mono_grating
     if fake_vernier:
         vernier = Signal(name='fake_vernier')
+        def loud_fake(value, **kwargs):
+            print(f'Fake vernier set to {value}')
+        vernier.subscribe(loud_fake)
     else:
         vernier = scan_devices.energy_req
     if fake_daq:
