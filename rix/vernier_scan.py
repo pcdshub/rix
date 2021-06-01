@@ -62,7 +62,8 @@ class LocalConfig(MonoVernierConfig):
 
 def interpolation_mono_vernier_duration_scan(
         mono_grating, energy_req, config, *,
-        ev_bounds=None, urad_bounds=None, duration
+        ev_bounds=None, urad_bounds=None, duration,
+        num_steps=0, delay=0,
         ):
     """
     Move the mono between two urad points for some duration in seconds.
@@ -85,6 +86,12 @@ def interpolation_mono_vernier_duration_scan(
     elif urad_bounds is None:
         urad_bounds = [config.ev_to_urad(ev, recalc=False) for ev in ev_bounds]
 
+    if num_steps > 0:
+        # Expand the urad_bounds to have extra steps between
+        urad_bounds = np.linspace(urad_bounds[0], urad_bounds[1], num_steps + 2)
+        # Add the middle steps in reverse order at the end
+        urad_bounds = list(urad_bounds) + list(reversed(urad_bounds[1:-1]))
+
     def update_vernier(value, **kwargs):
         energy_req.put(config.urad_to_ev(value, recalc=False))
 
@@ -96,6 +103,7 @@ def interpolation_mono_vernier_duration_scan(
         yield from bps.null()
         print('Starting Vernier putter')
         cbid = mono_grating.subscribe(update_vernier)
+        mono_grating.settle_time = delay
         return (
             yield from nbp.duration_scan(
                 [],
@@ -119,7 +127,8 @@ def interpolation_mono_vernier_duration_scan(
 
 def daq_interpolation_mono_vernier_duration_scan(
         mono_grating, energy_req, config, *,
-        ev_bounds=None, urad_bounds=None, duration
+        ev_bounds=None, urad_bounds=None, duration,
+        num_steps=0, delay=0,
         ):
     """
     Warning: this plan CANNOT be inspected!
@@ -147,7 +156,7 @@ def daq_interpolation_mono_vernier_duration_scan(
         return (yield from interpolation_mono_vernier_duration_scan(
             mono_grating, energy_req, config,
             ev_bounds=ev_bounds, urad_bounds=urad_bounds,
-            duration=duration,
+            duration=duration, num_steps=num_steps, delay=delay,
             )
         )
 
@@ -216,7 +225,7 @@ class FixSlowMotor(SlowMotor):
 
 
 def mono_vernier_scan(
-    *, ev_bounds=None, urad_bounds=None, duration,
+    *, ev_bounds=None, urad_bounds=None, duration, num_steps=0, delay=0,
     fake_mono=False, fake_vernier=False, fake_daq=False,
     ):
     """
@@ -234,6 +243,14 @@ def mono_vernier_scan(
 
     duration: number, required keyword-only
         Duration of the scan in seconds.
+
+    num_steps: integer, optional
+        Number of evenly-spaced extra steps to include between the endpoints.
+        These are places where the mono motor will stop before proceeding to
+        the next point.
+
+    delay: number, optional
+        Amount of time to wait at each step in seconds.
     """
     setup_scan_devices()
     if fake_mono:
@@ -261,6 +278,8 @@ def mono_vernier_scan(
         scan_devices.config,
         ev_bounds=ev_bounds,
         urad_bounds=urad_bounds,
-        duration=duration
+        duration=duration,
+        num_steps=num_steps,
+        delay=delay,
         )
     )
