@@ -1,4 +1,6 @@
 from types import SimpleNamespace
+import threading
+import time
 
 import numpy as np
 
@@ -92,8 +94,15 @@ def interpolation_mono_vernier_duration_scan(
         # Add the middle steps in reverse order at the end
         urad_bounds = list(urad_bounds) + list(reversed(urad_bounds[1:-1]))
 
+    # Set up some values for the vernier update
+    setup_scan_devices()
+    pre_mirror = scan_devices.pre_mirror_pos.get()
+
     def update_vernier(value, **kwargs):
-        energy_req.put(config.urad_to_ev(value, recalc=False))
+        # This is the version that uses interpolation to update the vernier
+        # energy_req.put(config.urad_to_ev(value, recalc=False))
+        # This is the version that calculates using Alex Reid's calc
+        energy_req.put(calc_mono_ev(grating=value, pre_mirror=pre_mirror))
 
     cbid = 0
 
@@ -101,6 +110,8 @@ def interpolation_mono_vernier_duration_scan(
         nonlocal cbid
 
         yield from bps.null()
+        print('Moving to the start position')
+        yield from bps.mv(mono_grating, urad_bounds[0])
         print('Starting Vernier putter')
         cbid = mono_grating.subscribe(update_vernier)
         mono_grating.settle_time = delay
@@ -220,6 +231,36 @@ def calc_mono_ev(grating=None, pre_mirror=None):
 
 
 class FixSlowMotor(SlowMotor):
+    def _setup_move(self, position, status):
+        if self.position is None:
+            # Initialize position during __init__'s set call
+            self._set_position(position)
+            self._done_moving(success=True)
+            return
+        elif position == self.position:
+            self._done_moving(success=True)
+            return
+
+        def update_thread(positioner, goal):
+            positioner._moving = True
+            while positioner.position != goal and not self._stop:
+                if goal - positioner.position > 1:
+                    positioner._set_position(positioner.position + 1)
+                elif goal - positioner.position < -1:
+                    positioner._set_position(positioner.position - 1)
+                else:
+                    positioner._set_position(goal)
+                    positioner._done_moving(success=True)
+                    return
+                time.sleep(0.1)
+            positioner._done_moving(success=False)
+        self.stop()
+        self._started_moving = True
+        self._stop = False
+        t = threading.Thread(target=update_thread,
+                             args=(self, position))
+        t.start()
+
     def stop(self, success=True):
         super().stop()
 
@@ -258,7 +299,7 @@ def mono_vernier_scan(
             start_pos = urad_bounds[0]
         else:
             start_pos = scan_devices.config.ev_to_urad(ev_bounds[0])
-        mono_grating = FixSlowMotor(name='fake_mono', init_pos=start_pos-1)
+        mono_grating = FixSlowMotor(name='fake_mono', init_pos=start_pos-5)
     else:
         mono_grating = scan_devices.mono_grating
     if fake_vernier:
