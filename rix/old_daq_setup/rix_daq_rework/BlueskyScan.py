@@ -19,9 +19,11 @@ class BlueskyScan:
         self.parent = None
         self.context = zmq.Context()
         self.push_socket = self.context.socket(zmq.PUSH)
-        self.push_socket.bind('tcp://*:5555')
+        #self.push_socket.bind('tcp://*:5555')
+        self.push_socket.bind('inproc://bluesky_scan')
         self.pull_socket = self.context.socket(zmq.PULL)
-        self.pull_socket.connect('tcp://localhost:5555')
+        #self.pull_socket.connect('tcp://localhost:5555')
+        self.pull_socket.connect('inproc://bluesky_scan')
         self.comm_thread = threading.Thread(target=self.daq_communicator_thread, args=())
         self.mon_thread = threading.Thread(target=self.daq_monitor_thread, args=(), daemon=True)
         self.ready = threading.Event()

@@ -9,8 +9,7 @@ from nabs import plans as nbp
 from ophyd import Device, Component as Cpt, EpicsSignal, EpicsSignalRO, Signal
 from pcdsdevices.epics_motor import BeckhoffAxis
 from pcdsdevices.sim import SlowMotor
-#from rix.rix_daq_rework.DaqControl import DaqControl
-from psdaq.control.DaqControl import DaqControl
+from rix.rix_daq_rework.DaqControl import DaqControl
 
 
 class MonoVernierConfig(Device):
@@ -55,6 +54,7 @@ class MonoVernierConfig(Device):
         return (((urad - self.urad_offset) * self.ev_per_urad)
                 + self.ev_offset)
 
+
 class LocalConfig(MonoVernierConfig):
     low_ev = Cpt(Signal)
     high_ev = Cpt(Signal)
@@ -65,7 +65,7 @@ class LocalConfig(MonoVernierConfig):
 def interpolation_mono_vernier_duration_scan(
         mono_grating, energy_req, config, *,
         ev_bounds=None, urad_bounds=None, duration,
-        num_steps=0, delay=0, record=True,
+        num_steps=0, delay=0,
         ):
     """
     Move the mono between two urad points for some duration in seconds.
@@ -73,16 +73,11 @@ def interpolation_mono_vernier_duration_scan(
     As the mono moves, continually put the interpolated eV position to the
     energy_req signal.
 
-    Starts from the point nearest to the current position.
-
     This plan is not safe to inspect because it uses an ophyd subscription
     with a standalone put. This could be fixed by including the ophyd
     subscription as a custom run engine message, or by refactoring to
     include the energy_req subscription as part of the mono grating's stage
     and unstage.
-
-    The "record" argument is non-functional here, with the goal of giving us
-    the same arguments as the daq version of the scan.
     """
     # Get the PV values at the start from the config
     config.recalc()
@@ -98,12 +93,6 @@ def interpolation_mono_vernier_duration_scan(
         urad_bounds = np.linspace(urad_bounds[0], urad_bounds[1], num_steps + 2)
         # Add the middle steps in reverse order at the end
         urad_bounds = list(urad_bounds) + list(reversed(urad_bounds[1:-1]))
-        # Find the nearest point to our current position
-        start_point = mono_grating.position
-        np_bounds = np.asarray(urad_bounds)
-        idx = (np.abs(np_bounds - start_point)).argmin()
-        # Shift the points to start the scan from right here
-        urad_bounds = list(np.roll(np_bounds, -idx))
 
     # Set up some values for the vernier update
     setup_scan_devices()
@@ -148,10 +137,10 @@ def interpolation_mono_vernier_duration_scan(
 
 
 def daq_interpolation_mono_vernier_duration_scan(
-    mono_grating, energy_req, config, *,
-    ev_bounds=None, urad_bounds=None, duration,
-    num_steps=0, delay=0, record=True,
-):
+        mono_grating, energy_req, config, *,
+        ev_bounds=None, urad_bounds=None, duration,
+        num_steps=0, delay=0,
+        ):
     """
     Warning: this plan CANNOT be inspected!
     This should definitely be re-done to use a more bluesky-like
@@ -172,8 +161,6 @@ def daq_interpolation_mono_vernier_duration_scan(
                 'DAQ must be in configured state to run vernier scan! '
                 f'Currently in {state} state.'
                 )
-        print(f'Setting DAQ record to {record}')
-        daq_control.setRecord(record)
         print('Starting the DAQ')
         daq_control.setState('running')
 
@@ -206,7 +193,7 @@ def setup_scan_devices():
         scan_devices.mono_grating = BeckhoffAxis('SP1K1:MONO:MMS:G_PI', name='mono_g_pi')
         #scan_devices.energy_req = EpicsSignal('RIX:USER:MCC:EPHOTK:VER', name='vernier_energy')
         #8:30PM 5/26/2021 Alberto says he's listening to EPHOTK not EPHOTK:VER
-        scan_devices.energy_req = EpicsSignal('RIX:USER:MCC:EPHOTK:SET1', name='vernier_energy')
+        scan_devices.energy_req = EpicsSignal('RIX:USER:MCC:EPHOTK', name='vernier_energy')
         scan_devices.config = MonoVernierConfig()
         scan_devices.acr_ephot_ref = EpicsSignal('RIX:USER:MCC:EPHOTK:REF1', name='acr_ref')
         scan_devices.energy_calc = EpicsSignalRO('SP1K1:MONO:CALC:ENERGY')
@@ -242,30 +229,6 @@ def calc_mono_ev(grating=None, pre_mirror=None):
     # Energy in eV
     return h*c*D/(el*(np.sin(alpha)-np.sin(beta)))
 
-def calc_grating_pitch(energy=None, pre_mirror=None):
-    setup_scan_devices()
-    if energy is None:
-        energy = scan_devices.energy_calc.get()
-    if pre_mirror is None:
-        pre_mirror = scan_devices.pre_mirror_pos.get()
-
-    # Calculates grating pitch [urad] from energy [eV]
-
-    # constants
-    eVmm = 0.001239842 # Wavelenght[mm] = eVmm/Energy[eV]
-    m = 1 # diffraction order
-    D0 = 50.0 # 1/mm
-    thetaM1 = 0.03662 # rad
-    thetaES = 0.1221413 # rad
-    offsetM2 = 90641.0e-6 # rad
-    offsetG = 63358.0e-6 # rad
-
-    pM2 = pre_mirror*1e-6 - offsetM2
-    a0 = m*D0*eVmm/energy
-    pG = pM2 - 0.5*thetaM1 + 0.5*thetaES  - np.arcsin(0.5*a0/np.cos(0.5*np.pi+pM2-0.5*thetaM1-0.5*thetaES))
-
-    #Grating pitch in urad
-    return (pG + offsetG)*1e6
 
 class FixSlowMotor(SlowMotor):
     def _setup_move(self, position, status):
@@ -304,7 +267,7 @@ class FixSlowMotor(SlowMotor):
 
 def mono_vernier_scan(
     *, ev_bounds=None, urad_bounds=None, duration, num_steps=0, delay=0,
-    fake_mono=False, fake_vernier=False, fake_daq=False, record=True,
+    fake_mono=False, fake_vernier=False, fake_daq=False,
     ):
     """
     WARNING: this scan CANNOT be safely inspected! Only pass into RE!
@@ -329,9 +292,6 @@ def mono_vernier_scan(
 
     delay: number, optional
         Amount of time to wait at each step in seconds.
-
-    record: bool, optional
-        Whether or not to record the data in the daq. Default is "True".
     """
     setup_scan_devices()
     if fake_mono:
@@ -362,6 +322,5 @@ def mono_vernier_scan(
         duration=duration,
         num_steps=num_steps,
         delay=delay,
-        record=record,
         )
     )

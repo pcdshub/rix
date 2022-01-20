@@ -8,6 +8,7 @@ from threading import Thread
 from rix.db import camviewer, RE
 from pcdsdevices.areadetector import plugins
 from pcdsdevices.slits import PowerSlits
+from pcdsdevices.epics_motor import BeckhoffAxis
 from pcdsdevices.pim import PPM
 from ophyd import EpicsSignalRO, EpicsSignal, Device
 from ophyd import Component as Cpt
@@ -21,7 +22,6 @@ from ophyd.positioner import SoftPositioner
 from ophyd.sim import motor1, motor2, det1
 import bluesky.plan_stubs as bps
 
-# needed for opening these files from a jupyter notebook
 import pickle
 pickle.HIGHEST_PROTOCOL = 4
 import pandas as pd
@@ -45,15 +45,6 @@ CAMS = [
 ]
 
 EPICSARCH = [
-    'EM2K0:XGMD:HPS:KeithleySum',
-    'IM2K4:PPM:SPM:VOLT_RBV',
-    'IM3K4:PPM:SPM:VOLT_RBV',
-    'IM4K4:PPM:SPM:VOLT_RBV',
-    'IM5K4:PPM:SPM:VOLT_RBV',
-    'MR1K4:SOMS:MMS:XUP.RBV',
-    'MR1K4:SOMS:MMS:YUP.RBV',
-    'MR1K4:SOMS:MMS:PITCH.RBV',
-    'MR2K4:KBO:MMS:X.RBV'
 ]
 
 GMD = 'EM1K0:GMD:HPS:AvgPulseIntensity'
@@ -474,6 +465,28 @@ class User:
     _cam_tools = CamTools()    
 #    _sim_cs = SimEvrScan()
     _bykiks = BYKIKS('', name='bykiks', read_attrs=['burst_mode_enable'])
+    mag = EpicsSignal('CRIX:RCI:MAG_SET')
+    
+    def set_field(B, wait=2):
+        start = self.mag.get()
+        if B>2.6:
+            print('Field too high')
+            return
+
+        for field in np.arange(start,0-0.1,-0.2):
+            self.mag.set(field)
+            print(self.mag.get())
+            time.sleep(wait)
+        for field in np.arange(0,2.7,0.2):
+            self.mag.set(field)
+            print(self.mag.get())
+            time.sleep(wait)
+        for field in np.arange(2.6,B-0.1,-0.2):
+            self.mag.set(field)
+            print(self.mag.get())
+            time.sleep(wait)
+        return
+
 
     @property
     def bykiks(self):
@@ -529,7 +542,7 @@ class User:
         path: str (default: None)
             If you don't specify the path, will try to create
             based on /reg/d/iocData/ioc-<cam>-gige/.  
-            This only works for im2k2-5k2 for now
+            This only works for im1k2-6k2 for now
 
         file_name: str (default: None)
             If not specified, we will create in form of <cam>-<int(epoch time)>
@@ -647,6 +660,10 @@ class User:
         images: int
             Number of images to collect at each motor position
         """
+        if isinstance(motor, str):
+            motor = BeckhoffAxis(motor,name=motor)
+            motor.wait_for_connection()
+        
         df = pd.DataFrame()
         motor_vals = np.linspace(start, stop, steps)
         c = CamH5()
@@ -655,31 +672,21 @@ class User:
         image_files = []
         times = []
         logger.info(f'Scanning {motor.name} over {motor_vals}')
-        for val in motor_vals:
+        for num, val in enumerate(motor_vals):
             motor.mv(val, wait=True)
+            motor_pos = motor.wm()
             filename = c.collect()
             image_files.append(filename)
             times.append(time.time())
             logger.info(f'Collected camera images and saved to {filename}')
-            df = df.append(pd.DataFrame([caget_many(EPICSARCH)], columns=EPICSARCH), ignore_index=True)
+            #df = df.append(pd.DataFrame([caget_many(EPICSARCH)], columns=EPICSARCH), ignore_index=True)
+            df = df.append(pd.DataFrame([motor_pos], columns=[motor.name]), ignore_index=True)
         df = df.assign(times=times)
         df = df.assign(image_files=image_files)
         file_name = f'{motor.name}-{int(time.time())}.h5'
         location = ''.join([SCAN_PATH, file_name])
         df.to_hdf(location, key='metadata')
         logger.info(f'wrote all data to {location}')
-
-    def las_scan(start, stop, delta, dwell=30):
-    	tgt_time = EpicsSignal('LAS:FS14:VIT:FS_TGT_TIME_DIAL')
-    	delays = np.arange(start, stop, delta) / 1e6
-    	while True:
-            np.random.shuffle(delays)
-            for delay in delays:
-            	logger.info(f'Setting delay {delay}')
-            	tgt_time.put(delay)
-            	time.sleep(0.5)
-            	logger.info(f'Delay set {tgt_time.get()}')
-            	time.sleep(dwell)
 
     @staticmethod
     def imprint_scan(x_motor, x_start, x_stop, x_steps, y_motor, y_start, y_stop, y_steps):

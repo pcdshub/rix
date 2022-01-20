@@ -3,14 +3,14 @@
 # This file can be modified in several places for dev settings
 
 # pcds-envs version
-export CONDA_ENVNAME="pcds-4.1.4"
+export CONDA_ENVNAME="pcds-5.0.0"
 # In case you want dev dev
 #export CONDA_ENVNAME="dev"
 
 # Settings
 export HUTCH="rix"
 export LOCAL_BASE="/u1/rixopr/conda_envs"
-export NFS_BASE="/cds/group/pcds/pyps/conda/py36"
+export NFS_BASE="/cds/group/pcds/pyps/conda/py39"
 USE_LOCAL="1"
 
 # Clear the user's old env variables
@@ -39,6 +39,6 @@ export PYTHONPATH="${HERE}:${HERE}/dev/devpath"
 #export PYTHONPATH="${HERE}:${HERE}/dev/devpath:/cds/group/pcds/pyps/apps/dev/pythonpath/"
 
 # Activates pydaq, pycdb, pyami
-source pcdsdaq_lib_setup
+# source pcdsdaq_lib_setup
 # Sets our bash prompt prefix
 export CONDA_PROMPT_MODIFIER="(${HUTCH}-${CONDA_ENVNAME})"

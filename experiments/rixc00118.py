@@ -1,5 +1,6 @@
 import logging
 import h5py
+import pandas as pd
 import time
 from epics import caget, caget_many, PV
 import matplotlib.pyplot as plt
@@ -20,11 +21,6 @@ from bluesky.callbacks.best_effort import BestEffortCallback
 from ophyd.positioner import SoftPositioner
 from ophyd.sim import motor1, motor2, det1
 import bluesky.plan_stubs as bps
-
-# needed for opening these files from a jupyter notebook
-import pickle
-pickle.HIGHEST_PROTOCOL = 4
-import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +66,7 @@ class PPMRecorder:
     _data = []
     _gmd_data = []
     _xgmd_data = []
-    _ppm = 'im1k2'
+    _ppm = 'im2k4'
     _collection_time = 60
 
     @staticmethod
@@ -230,8 +226,8 @@ class CamH5:
             return
 
         if not self.path:
-            #self.path = f'/cds/data/iocData/ioc-kfe-mono-gige04/'    ##iocData location for MONO-04 camera 
-            self.path = f'/reg/d/iocData/ioc-{self.camera.name}-gige/'
+            self.path = f'/cds/data/iocData/ioc-kfe-mono-gige04/'    ##iocData location for MONO-04 camera 
+            #self.path = f'/reg/d/iocData/ioc-{self.camera.name}-gige/'
         
         # Check path
         self.camera.hdf51.file_path.put(self.path)
@@ -480,12 +476,12 @@ class User:
         return self._bykiks
 
     @staticmethod
-    def ppm_scan(ppm='im1k2', time=60, downsample=100, plot=True, save=True):
+    def ppm_scan(ppm='im2k4', time=60, downsample=100, plot=True, save=True):
         """General PPM Recorder Scan with basic steps that Phil uses
 
         Parameters:
         ----------
-        ppm: str (default: 'im1k2')
+        ppm: str (default: 'im2k4')
             The root name of the PPM you'd like to record for
 
         time: int (default: 60)
@@ -521,7 +517,7 @@ class User:
         Parameters:
         ----------
         camera: camviewer camera object
-            Example is ('im2k2').  The motor you'd like to scan
+            Example is ('im2k4').  The motor you'd like to scan
 
         images: int (default: 10)
             Number of images to collect and save in hdf5 file
@@ -529,7 +525,7 @@ class User:
         path: str (default: None)
             If you don't specify the path, will try to create
             based on /reg/d/iocData/ioc-<cam>-gige/.  
-            This only works for im2k2-5k2 for now
+            This only works for im2k4-5k4 for now
 
         file_name: str (default: None)
             If not specified, we will create in form of <cam>-<int(epoch time)>
@@ -668,18 +664,6 @@ class User:
         location = ''.join([SCAN_PATH, file_name])
         df.to_hdf(location, key='metadata')
         logger.info(f'wrote all data to {location}')
-
-    def las_scan(start, stop, delta, dwell=30):
-    	tgt_time = EpicsSignal('LAS:FS14:VIT:FS_TGT_TIME_DIAL')
-    	delays = np.arange(start, stop, delta) / 1e6
-    	while True:
-            np.random.shuffle(delays)
-            for delay in delays:
-            	logger.info(f'Setting delay {delay}')
-            	tgt_time.put(delay)
-            	time.sleep(0.5)
-            	logger.info(f'Delay set {tgt_time.get()}')
-            	time.sleep(dwell)
 
     @staticmethod
     def imprint_scan(x_motor, x_start, x_stop, x_steps, y_motor, y_start, y_stop, y_steps):

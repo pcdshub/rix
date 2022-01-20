@@ -5,3 +5,11 @@ db: /reg/g/pcds/pyps/apps/hutch-python/device_config/db.json
 
 # Hutch-specific imports
 load: rix.beamline
+
+# DAQ interface configuration
+daq_type: lcls2
+
+daq_host: drp-neh-ctl001
+
+daq_platform:
+  default: 2

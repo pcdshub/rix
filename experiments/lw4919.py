@@ -1,5 +1,6 @@
 import logging
 import h5py
+import pandas as pd
 import time
 from epics import caget, caget_many, PV
 import matplotlib.pyplot as plt
@@ -20,11 +21,6 @@ from bluesky.callbacks.best_effort import BestEffortCallback
 from ophyd.positioner import SoftPositioner
 from ophyd.sim import motor1, motor2, det1
 import bluesky.plan_stubs as bps
-
-# needed for opening these files from a jupyter notebook
-import pickle
-pickle.HIGHEST_PROTOCOL = 4
-import pandas as pd
 
 logger = logging.getLogger(__name__)
 
