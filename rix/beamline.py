@@ -4,9 +4,16 @@ import sys
 from epics import caget, caput, cainfo
 
 
+with safe_load('Configure Run Engine'):
+    # Always move to start
+    from rix.db import RE
+    from bluesky.preprocessors import reset_positions_wrapper as _rpm
+    RE.preprocessors.append(_rpm)
+
+
 with safe_load('LCLS-II daq step_value'):
     from ophyd.sim import SynAxis
-    from rix.rix_daq_rework.ControlDef import ControlDef
+    from psdaq.control.ControlDef import ControlDef
 
     step_value = SynAxis(name=ControlDef.STEP_VALUE)
 
@@ -15,10 +22,18 @@ with safe_load('FS14 lxt, txt, lxt_ttc, las_wp1, las_wp2'):
     from rix.lxt import lxt, txt, lxt_ttc, las_wp1, las_wp2
 
 
-with safe_load('mono_vernier_scan'):
-    from rix.vernier_scan import (mono_vernier_scan, calc_mono_ev,
-                                  scan_devices as vernier_scan_devices,
-                                  setup_scan_devices as _setup_scan_devices)
+#with safe_load('mono_vernier_scan'):
+#    from rix.vernier_scan import (mono_vernier_scan, calc_mono_ev,
+#                                  scan_devices as vernier_scan_devices,
+#                                  setup_scan_devices as _setup_scan_devices)
+#    _setup_scan_devices()
+
+with safe_load('mono energy_scan'):
+    from rix.energy_scan import (energy_scan, energy_scan_step,
+                                 energy_scan_nd, energy_scan_nd_list,
+                                 energy_scan_nd_grid,
+                                 energy_scan_nd_grid_list,
+                                 setup_scan_devices as _setup_scan_devices)
     _setup_scan_devices()
 
 
@@ -28,11 +43,15 @@ with safe_load('aliases'):
     mr1k1_bend_ds = mr1k1_bend.bender_ds
 
 
-with safe_load('mono energy scan'):
+with safe_load('mono energy scan devices'):
     from ophyd.signal import EpicsSignal
     from pcdsdevices.epics_motor import BeckhoffAxis
     mono_g_pi = BeckhoffAxis('SP1K1:MONO:MMS:G_PI', name='mono_g_pi')
-    vernier_energy = EpicsSignal('RIX:USER:MCC:EPHOTK:SET1', name='vernier_energy')
+    energy_request = EpicsSignal(
+        'RIX:USER:MCC:EPHOTK:SET1',
+        name='energy_request',
+    )
+    vernier_energy = energy_request
 
 
 with safe_load('laser lens motors'):
@@ -46,3 +65,8 @@ with safe_load('laser lens motors'):
 
 with safe_load('continous scan'):
     from rix.continuous_scan import continuous_scan
+
+
+with safe_load('chemrixs script utilities'):
+    from rix.chemrixs import *
+
