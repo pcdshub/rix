@@ -49,7 +49,12 @@ def energy_scan(
     The energy request will track the the grating movement.
 
     The various "fake" arguments run test scans without the associated
-    real hardware.
+    real hardware:
+    - fake_grating: do not move the mono grating pitch
+    - fake_pre_mirror: do not each the real pre mirror PV for the calcs
+    - fake_acr: do not ask acr to change the energy, instead print it
+    - fake_daq: do not run the daq
+    - fake_all: do everything fake!
 
     This is a thin wrapper around energy_scan_step, simplifying the arguments
     for the case where we want to do a fly scan.
@@ -847,12 +852,21 @@ class SettleProxy:
     """
     def __init__(self, obj):
         self.obj = obj
+        self.parent = None
 
     def set(self, value, **kwargs):
         self.obj.settle_time = value
         status = Status()
         status.set_finished()
         return status
+
+    def read(self):
+        return {
+            'settle_proxy': {
+                'value': self.obj.settle_time,
+                'timestamp': time.time(),
+            }
+        }
 
 
 def setup_scan_devices():
