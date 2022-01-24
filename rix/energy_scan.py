@@ -13,12 +13,11 @@ from bluesky import plans as bp
 from bluesky import preprocessors as bpp
 from bluesky.utils import Msg
 from nabs import plans as nbp
-from ophyd import EpicsSignalRO, Signal
+from ophyd import EpicsSignal, EpicsSignalRO, Signal
 from ophyd.ophydobj import OphydObject
 from ophyd.status import Status
-from pcdsdevices.beam_stats import BeamEnergyRequest
 from pcdsdevices.epics_motor import BeckhoffAxis
-from pcdsdevices.sim import FastMotor, SlowMotor
+from pcdsdevices.sim import SlowMotor
 from psdaq.control.DaqControl import DaqControl
 
 from rix.chemrixs import calc_pitch
@@ -647,7 +646,7 @@ def get_scan_hw(
             value=143253,  # live value on the day I made this
         )
     if fake_acr:
-        request = FastMotor(name='fake_request')
+        request = Signal(name='fake_request')
         last_print = 0
         loud_lock = threading.Lock()
 
@@ -706,10 +705,6 @@ class EnergyRequestHandler:
         request_pos: Optional[Signal] = None,
         **kwargs,
     ):
-        """
-        Note: kwargs can be used to adjust the move tolerance
-        (default atol=5 => only ask for a move if eV change >5)
-        """
         if isinstance(grating_pos, OphydObject):
             self.grating_sig = grating_pos
         elif isinstance(grating_pos, str):
@@ -723,10 +718,9 @@ class EnergyRequestHandler:
         else:
             raise TypeError(f"Invalid pre_mirror_pos={pre_mirror_pos}")
         if request_pos is None:
-            self.request = BeamEnergyRequest(
-                "RIX",
-                name="energy_request",
-                **kwargs,
+            self.request = EpicsSignal(
+                'RIX:USER:MCC:EPHOTK:SET1',
+                name='energy_request',
             )
         else:
             self.request = request_pos
@@ -758,7 +752,7 @@ class EnergyRequestHandler:
             grating=value,
             pre_mirror=self.pre_mirror_sig.get(),
         )
-        self.request.move(calc, wait=False)
+        self.request.put(calc, wait=False)
 
     def stage(self) -> list[EnergyRequestHandler]:
         """
@@ -777,6 +771,9 @@ class EnergyRequestHandler:
         """
         self.stop_requests()
         return [self]
+
+    def stop(self, *args, **kwargs):
+        ...
 
 
 # Utility for including the EnergyRequestHandler in a plan
