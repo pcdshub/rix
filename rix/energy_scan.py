@@ -222,7 +222,7 @@ def mono_energy_duration_scan(
         # Shift the points to start the scan from right here
         urad_bounds = list(np.roll(np_bounds, -idx))
 
-    yield from energy_scan_setup(
+    original_speed = yield from energy_scan_setup(
         mono_grating=mono_grating,
         urad_bounds=urad_bounds,
         grating_speed=grating_speed,
@@ -230,14 +230,20 @@ def mono_energy_duration_scan(
     )
 
     return (
-        yield from energy_request_wrapper(
-            nbp.duration_scan(
-                [],
-                mono_grating,
-                urad_bounds,
-                duration=duration,
+        yield from bpp.finalize_wrapper(
+            energy_request_wrapper(
+                nbp.duration_scan(
+                    [],
+                    mono_grating,
+                    urad_bounds,
+                    duration=duration,
+                ),
+                **kwargs,
             ),
-            **kwargs,
+            energy_scan_cleanup(
+                mono_grating=mono_grating,
+                original_speed=original_speed,
+            )
         )
     )
 
@@ -542,14 +548,21 @@ def _generic_nd_scan(
 
     # Yields are where the scan runs
     # Do these all last so we can check all args before any motion
-    yield from energy_scan_setup(
+    original_speed = yield from energy_scan_setup(
         mono_grating=mono_grating,
         urad_bounds=urad_bounds,
         grating_speed=grating_speed,
         delay=0,
     )
-
-    return (yield from inner)
+    return (
+        yield from bpp.finalize_wrapper(
+            inner,
+            energy_scan_cleanup(
+                mono_grating=mono_grating,
+                original_speed=original_speed,
+            )
+        )
+    )
 
 
 def _energy_per_step(
@@ -676,13 +689,33 @@ def energy_scan_setup(
     # Separate from the main scan with empty null plan
     # Prevents the prints/logs from coming early
     yield from bps.null()
+    # Get the starting speed
+    try:
+        velo_read = yield from bps.read(mono_grating.velocity)
+        velo = velo_read[mono_grating.velocity.name]['value']
+        logger.info('Original speed is %s', velo)
+    except TypeError:
+        velo = None
+        logger.info('Plan inspection, cannot get original speed')
     # Set the settings, bluesky-style
-    logger.info('Setting grating speed: %s', grating_speed)
-    yield from bps.abs_set(mono_grating.velocity, grating_speed, wait=True)
     logger.info('Setting step delay to %s', delay)
     yield from bps.abs_set(SettleProxy(mono_grating), delay)
     logger.info('Moving to the start position: %s', urad_bounds[0])
     yield from bps.mv(mono_grating, urad_bounds[0])
+    logger.info('Setting grating speed: %s', grating_speed)
+    yield from bps.abs_set(mono_grating.velocity, grating_speed, wait=True)
+    return velo
+
+
+def energy_scan_cleanup(
+    mono_grating: BeckhoffAxis,
+    original_speed: float,
+) -> PlanType:
+    """
+    Re-usable cleanup steps after the main scan.
+    """
+    logger.info('Setting grating speed: %s', original_speed)
+    yield from bps.abs_set(mono_grating.velocity, original_speed, wait=True)
 
 
 class EnergyRequestHandler:
@@ -935,7 +968,7 @@ def calc_grating_pitch(energy=None, pre_mirror=None):
 
 
 class FixSlowMotor(SlowMotor):
-    velocity = Signal(name='fake_velo')
+    velocity = Signal(name='fake_velo', value=20)
 
     def _setup_move(self, position, status):
         if self.position is None:
