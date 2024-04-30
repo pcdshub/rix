@@ -3,7 +3,7 @@
 # This file can be modified in several places for dev settings
 
 # pcds-envs version
-export CONDA_ENVNAME="pcds-5.0.0"
+export CONDA_ENVNAME="pcds-5.7.2"
 # In case you want dev dev
 #export CONDA_ENVNAME="dev"
 

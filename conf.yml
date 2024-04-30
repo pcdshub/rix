@@ -9,7 +9,7 @@ load: rix.beamline
 # DAQ interface configuration
 daq_type: lcls2
 
-daq_host: drp-neh-ctl001
+daq_host: drp-srcf-cmp004
 
 daq_platform:
   default: 2

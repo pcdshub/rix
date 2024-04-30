@@ -4,6 +4,8 @@ from pcdsdevices.epics_motor import SmarAct
 from pcdsdevices.pseudopos import SyncAxis, delay_instance_factory
 
 
+
+##lxt = LaserTiming('LAS:FS11', name='lxt')
 lxt = LaserTiming('LAS:FS14', name='lxt')
 txt = delay_instance_factory('LM2K2:COM_MP2_DLY1', motor_class=SmarAct,
                              egu='s', n_bounces=16, name='txt')
