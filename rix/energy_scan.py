@@ -20,7 +20,7 @@ from pcdsdevices.epics_motor import BeckhoffAxis
 from pcdsdevices.sim import SlowMotor
 from psdaq.control.DaqControl import DaqControl
 
-from rix.chemrixs import calc_pitch
+from rix.rix_utilities import calc_pitch, calc_E
 
 logger = logging.getLogger(__name__)
 PlanType = Generator[Msg, Any, Any]
@@ -781,10 +781,10 @@ class EnergyRequestHandler:
         """
         Automatically called to send a beam request when the mirror moves.
         """
-        calc = calc_mono_ev(
-            grating=value,
-            pre_mirror=self.pre_mirror_sig.get(),
-        )
+        calc = calc_E(
+            value,
+            self.pre_mirror_sig.get(),
+        )[0]
         self.request.put(calc, wait=False)
 
     def stage(self) -> list[EnergyRequestHandler]:
@@ -821,7 +821,7 @@ class DaqHelper:
     """
     def __init__(
         self,
-        host: str = 'drp-neh-ctl001',
+        host: str = 'drp-srcf-cmp004',
         platform: int = 2,
         timeout: int = 1000,
         record: Optional[bool] = None,
@@ -906,65 +906,6 @@ def setup_scan_devices():
             name='mono_g_pi',
         )
         scan_devices.pre_mirror_pos = EpicsSignalRO('SP1K1:MONO:MMS:M_PI.RBV')
-
-
-def calc_mono_ev(grating=None, pre_mirror=None):
-    setup_scan_devices()
-    if grating is None:
-        grating = scan_devices.mono_grating.position
-    if pre_mirror is None:
-        pre_mirror = scan_devices.pre_mirror_pos.get()
-
-    # Calculation copied from Alex Reid's email with minimal edits
-
-    # Constants:
-    D = 5e4  # ruling density in lines per meter
-    c = 299792458  # speed of light
-    h = 6.62607015E-34  # Plank's const
-    el = 1.602176634E-19  # elemental charge
-    b = 0.03662  # beam from MR1K1 design value in radians
-    ex = 0.1221413  # exit trajectory design value in radians
-
-    # Inputs:
-    # grating pitch remove offset and convert to rad
-    g = (grating - 63358)/1e6
-    # pre mirror pitch remove offset and convert to rad
-    p = (pre_mirror - 90641)/1e6
-
-    # Calculation
-    alpha = np.pi/2 - g + 2*p - b
-    beta = np.pi/2 + g - ex
-    # Energy in eV
-    return h*c*D/(el*(np.sin(alpha)-np.sin(beta)))
-
-
-def calc_grating_pitch(energy=None, pre_mirror=None):
-    setup_scan_devices()
-    if energy is None:
-        energy = scan_devices.energy_calc.get()
-    if pre_mirror is None:
-        pre_mirror = scan_devices.pre_mirror_pos.get()
-
-    # Calculates grating pitch [urad] from energy [eV]
-
-    # constants
-    eVmm = 0.001239842  # Wavelenght[mm] = eVmm/Energy[eV]
-    m = 1  # diffraction order
-    D0 = 50.0  # 1/mm
-    thetaM1 = 0.03662  # rad
-    thetaES = 0.1221413  # rad
-    offsetM2 = 90641.0e-6  # rad
-    offsetG = 63358.0e-6  # rad
-
-    pM2 = pre_mirror*1e-6 - offsetM2
-    a0 = m*D0*eVmm/energy
-    pG = (
-        pM2 - 0.5*thetaM1 + 0.5*thetaES
-        - np.arcsin(0.5*a0/np.cos(0.5*np.pi+pM2-0.5*thetaM1-0.5*thetaES))
-    )
-
-    # Grating pitch in urad
-    return (pG + offsetG)*1e6
 
 
 class FixSlowMotor(SlowMotor):
