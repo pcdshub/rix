@@ -19,6 +19,7 @@ from ophyd.status import Status
 from pcdsdevices.epics_motor import BeckhoffAxis
 from pcdsdevices.sim import SlowMotor
 from psdaq.control.DaqControl import DaqControl
+from psdaq.control.BlueskyScan import BlueskyScan
 
 from rix.rix_utilities import calc_pitch, calc_E
 
@@ -943,3 +944,169 @@ class FixSlowMotor(SlowMotor):
 
     def stop(self, success=True):
         super().stop()
+
+
+def energy_grating_step_scan(
+    start_ev: float,
+    stop_ev: float,
+    num: int,
+    *,
+    record: bool = True,
+    fake_grating: bool = False,
+    fake_pre_mirror: bool = False,
+    fake_acr: bool = False,
+    fake_daq: bool = False,
+    fake_all: bool = False,
+) -> PlanType:
+    """
+    Basic step scan of the grating mono coordinated with an ACR energy request.
+
+    This uses the default bp.scan behavior under-the-hood to facilitate
+    basic step scans using the energy calculations.
+
+    The energy request may be a vernier move or it may be an undulator move.
+    The energy request will track the the grating movement.
+
+    The various "fake" arguments run test scans without the associated
+    real hardware:
+    - fake_grating: do not move the mono grating pitch
+    - fake_pre_mirror: do not each the real pre mirror PV for the calcs
+    - fake_acr: do not ask acr to change the energy, instead print it
+    - fake_daq: do not run the daq
+    - fake_all: do everything fake!
+
+    Parameters
+    ----------
+    start_ev: number
+        The lower-bound of the eV to scan.
+    
+    stop_ev: number
+        The upper-bound of the eV to scan.
+
+    num: int
+        The number of points to scan between start_ev and stop_ev,
+        including the start and stop points.
+    
+    ev_bounds: list of numbers, keyword-only
+        Upper and lower bounds of the scan in ev.
+        Provide either ev_bounds or urad_bounds, but not both.
+
+    record: bool, optional
+        Whether or not to record the data in the daq. Default is "True".
+    """
+    start_urad, stop_urad = calculate_bounds(ev_bounds=(start_ev, stop_ev))
+
+    if fake_all:
+        fake_grating = True
+        fake_pre_mirror = True
+        fake_acr = True
+        fake_daq = True
+    mono_grating, sim_kw = get_scan_hw(
+        urad_bounds=[start_urad],
+        fake_grating=fake_grating,
+        fake_pre_mirror=fake_pre_mirror,
+        fake_acr=fake_acr,
+    )
+    if fake_daq:
+        dets = []
+    else:
+        # Require a fully loaded DAQ object via hutch-python!
+        from hutch_python.db import daq
+        dets = [daq]
+        yield from bps.configure(
+            daq,
+            record=record,
+        )
+    return (
+        yield from energy_request_wrapper(
+            bp.scan(
+                dets,
+                mono_grating,
+                start_urad,
+                stop_urad,
+                num=num,
+            ),
+            **sim_kw,
+        )
+    )
+
+
+def energy_grating_list_scan(
+    ev_points: list[float],
+    *,
+    record: bool = True,
+    fake_grating: bool = False,
+    fake_pre_mirror: bool = False,
+    fake_acr: bool = False,
+    fake_daq: bool = False,
+    fake_all: bool = False,
+) -> PlanType:
+    """
+    Basic step scan of the grating mono coordinated with an ACR energy request.
+
+    This uses the default bp.scan behavior under-the-hood to facilitate
+    basic step scans using the energy calculations.
+
+    The energy request may be a vernier move or it may be an undulator move.
+    The energy request will track the the grating movement.
+
+    The various "fake" arguments run test scans without the associated
+    real hardware:
+    - fake_grating: do not move the mono grating pitch
+    - fake_pre_mirror: do not each the real pre mirror PV for the calcs
+    - fake_acr: do not ask acr to change the energy, instead print it
+    - fake_daq: do not run the daq
+    - fake_all: do everything fake!
+
+    Parameters
+    ----------
+    start_ev: number
+        The lower-bound of the eV to scan.
+    
+    stop_ev: number
+        The upper-bound of the eV to scan.
+
+    num: int
+        The number of points to scan between start_ev and stop_ev,
+        including the start and stop points.
+    
+    ev_bounds: list of numbers, keyword-only
+        Upper and lower bounds of the scan in ev.
+        Provide either ev_bounds or urad_bounds, but not both.
+
+    record: bool, optional
+        Whether or not to record the data in the daq. Default is "True".
+    """
+    urad_points = calculate_bounds(ev_bounds=ev_points)
+
+    if fake_all:
+        fake_grating = True
+        fake_pre_mirror = True
+        fake_acr = True
+        fake_daq = True
+    mono_grating, sim_kw = get_scan_hw(
+        urad_bounds=urad_points,
+        fake_grating=fake_grating,
+        fake_pre_mirror=fake_pre_mirror,
+        fake_acr=fake_acr,
+    )
+    if fake_daq:
+        dets = []
+    else:
+        # Require a fully loaded DAQ object via hutch-python!
+        from hutch_python.db import daq
+        dets = [daq]
+        yield from bps.configure(
+            daq,
+            record=record,
+        )
+    return (
+        yield from energy_request_wrapper(
+            bp.list_scan(
+                dets,
+                mono_grating,
+                urad_points,
+            ),
+            **sim_kw,
+        )
+    )
