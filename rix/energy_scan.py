@@ -957,6 +957,7 @@ def energy_grating_step_scan(
     fake_acr: bool = False,
     fake_daq: bool = False,
     fake_all: bool = False,
+    **daq_cfg,
 ) -> PlanType:
     """
     Basic step scan of the grating mono coordinated with an ACR energy request.
@@ -993,6 +994,9 @@ def energy_grating_step_scan(
 
     record: bool, optional
         Whether or not to record the data in the daq. Default is "True".
+
+    **daq_cfg: various, optional
+        Any standard DAQ config keyword, such as events or duration.
     """
     start_urad, stop_urad = calculate_bounds(ev_bounds=(start_ev, stop_ev))
 
@@ -1016,6 +1020,8 @@ def energy_grating_step_scan(
         yield from bps.configure(
             daq,
             record=record,
+            motors=[mono_grating],
+            **daq_cfg,
         )
     return (
         yield from energy_request_wrapper(
@@ -1040,6 +1046,7 @@ def energy_grating_list_scan(
     fake_acr: bool = False,
     fake_daq: bool = False,
     fake_all: bool = False,
+    **daq_cfg,
 ) -> PlanType:
     """
     Basic step scan of the grating mono coordinated with an ACR energy request.
@@ -1076,6 +1083,9 @@ def energy_grating_list_scan(
 
     record: bool, optional
         Whether or not to record the data in the daq. Default is "True".
+
+    **daq_cfg: various, optional
+        Any standard DAQ config keyword, such as events or duration.
     """
     urad_points = calculate_bounds(ev_bounds=ev_points)
 
@@ -1099,6 +1109,8 @@ def energy_grating_list_scan(
         yield from bps.configure(
             daq,
             record=record,
+            motors=[mono_grating],
+            **daq_cfg,
         )
     return (
         yield from energy_request_wrapper(
