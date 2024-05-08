@@ -38,12 +38,12 @@ with safe_load('CAM Recorder'):
 #    _setup_scan_devices()
 
 with safe_load('mono energy_scan'):
-    from rix.energy_scan import (energy_scan, energy_scan_step,
-                                 energy_scan_nd, energy_scan_nd_list,
-                                 energy_scan_nd_grid,
-                                 energy_scan_nd_grid_list,
-                                 energy_grating_step_scan,
-                                 energy_grating_list_scan,
+    from rix.energy_scan import (energy_fly_scan, energy_fly_scan_step,
+                                 energy_fly_scan_nd, energy_fly_scan_nd_list,
+                                 energy_fly_scan_nd_grid,
+                                 energy_fly_scan_nd_grid_list,
+                                 energy_step_scan,
+                                 energy_list_scan,
                                  setup_scan_devices as _setup_scan_devices)
     _setup_scan_devices()
 
@@ -85,4 +85,17 @@ with safe_load('chemrixs script utilities'):
 
 with safe_load('qrixs script utilities'):
     from rix.qrixs_utilities import *
+
+with safe_load('table_formatters'):
+    from bluesky.callbacks.core import LiveTable
+
+    def set_table_format(fmt: str):
+        LiveTable._FMT_MAP["number"] = fmt
+
+
+    def set_table_format_scientific():
+        set_table_format("g")
+
+    def set_table_format_basic():
+        set_table_format("f")
 

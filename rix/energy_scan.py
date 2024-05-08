@@ -29,7 +29,7 @@ PlanType = Generator[Msg, Any, Any]
 
 # 1D Scans (move back and forth for duration seconds)
 
-def energy_scan(
+def energy_fly_scan(
     *,
     ev_bounds: Optional[list[float]] = None,
     urad_bounds: Optional[list[float]] = None,
@@ -81,7 +81,7 @@ def energy_scan(
     """
     return (
         yield from (
-            energy_scan_step(
+            energy_fly_scan_step(
                 ev_bounds=ev_bounds,
                 urad_bounds=urad_bounds,
                 duration=duration,
@@ -99,7 +99,7 @@ def energy_scan(
     )
 
 
-def energy_scan_step(
+def energy_fly_scan_step(
     *,
     ev_bounds: Optional[list[float]] = None,
     urad_bounds: Optional[list[float]] = None,
@@ -160,7 +160,7 @@ def energy_scan_step(
         fake_acr=fake_acr,
     )
 
-    plan = mono_energy_duration_scan(
+    plan = energy_fly_duration_scan(
         mono_grating,
         ev_bounds=ev_bounds,
         urad_bounds=urad_bounds,
@@ -178,7 +178,7 @@ def energy_scan_step(
     return (yield from plan)
 
 
-def mono_energy_duration_scan(
+def energy_fly_duration_scan(
     mono_grating: BeckhoffAxis,
     *,
     ev_bounds: Optional[list[float]] = None,
@@ -251,7 +251,7 @@ def mono_energy_duration_scan(
 
 # ND scans (scan a motor or n motors, do 1 energy sweep at each step)
 
-def energy_scan_nd(
+def energy_fly_scan_nd(
     *args,
     num: Optional[int] = None,
     ev_bounds: Optional[list[float]] = None,
@@ -297,7 +297,7 @@ def energy_scan_nd(
     )
 
 
-def energy_scan_nd_relative(
+def energy_fly_scan_nd_relative(
     *args,
     num: Optional[int] = None,
     ev_bounds: Optional[list[float]] = None,
@@ -347,7 +347,7 @@ def energy_scan_nd_relative(
     )
 
 
-def energy_scan_nd_list(
+def energy_fly_scan_nd_list(
     *args,
     ev_bounds: Optional[list[float]] = None,
     urad_bounds: Optional[list[float]] = None,
@@ -389,7 +389,7 @@ def energy_scan_nd_list(
     )
 
 
-def energy_scan_nd_grid(
+def energy_fly_scan_nd_grid(
     *args,
     snake_axes: Optional[bool] = None,
     ev_bounds: Optional[list[float]] = None,
@@ -437,7 +437,7 @@ def energy_scan_nd_grid(
     )
 
 
-def energy_scan_nd_grid_list(
+def energy_fly_scan_nd_grid_list(
     *args,
     snake_axes: Optional[bool] = None,
     ev_bounds: Optional[list[float]] = None,
@@ -946,7 +946,7 @@ class FixSlowMotor(SlowMotor):
         super().stop()
 
 
-def energy_grating_step_scan(
+def energy_step_scan(
     start_ev: float,
     stop_ev: float,
     num: int,
@@ -1037,7 +1037,7 @@ def energy_grating_step_scan(
     )
 
 
-def energy_grating_list_scan(
+def energy_list_scan(
     ev_points: list[float],
     *,
     record: bool = True,
