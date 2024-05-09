@@ -13,13 +13,15 @@ from bluesky import plans as bp
 from bluesky import preprocessors as bpp
 from bluesky.utils import Msg
 from nabs import plans as nbp
-from ophyd import EpicsSignal, EpicsSignalRO, Signal
+from ophyd.signal import AttributeSignal, EpicsSignal, EpicsSignalRO, Signal
 from ophyd.ophydobj import OphydObject
 from ophyd.status import Status
 from pcdsdevices.epics_motor import BeckhoffAxis
+from pcdsdevices.signal import AggregateSignal, _AggregateSignalState
 from pcdsdevices.sim import SlowMotor
 from psdaq.control.DaqControl import DaqControl
 from psdaq.control.BlueskyScan import BlueskyScan
+from toolz import partition
 
 from rix.rix_utilities import calc_pitch, calc_E
 
@@ -911,6 +913,11 @@ def setup_scan_devices():
 
 class FixSlowMotor(SlowMotor):
     velocity = Signal(name='fake_velo', value=20)
+    user_readback = Signal(name='fake_pos', value=0)
+
+    def _set_position(self, position):
+        super()._set_position(position)
+        self.user_readback.put(position)
 
     def _setup_move(self, position, status):
         if self.position is None:
@@ -944,6 +951,125 @@ class FixSlowMotor(SlowMotor):
 
     def stop(self, success=True):
         super().stop()
+
+
+class PlotDisableHelper:
+    """
+    Helper class for making sure plots are disabled for the energy step scans.
+
+    The plots for these scans are necessarily simple flat slopes are never
+    particularly interesting.
+    """
+    parent = None
+    
+    def stage(self) -> list[PlotDisableHelper]:
+        try:
+            from hutch_python.db import bec
+            self.bec = bec
+        except ImportError:
+            self.enable_after = False
+        else:
+            if bec._plots_enabled:
+                bec.disable_plots()
+                self.enable_after = True
+            else:
+                self.enable_after = False
+        return [self]
+
+    def unstage(self) -> list[PlotDisableHelper]:
+        if self.enable_after:
+            self.bec.enable_plots()
+        return [self]
+
+
+class MonoEnergySignal(AggregateSignal):
+    """
+    Signal that reads back the mono energy for the LiveTable.
+    """
+    def __init__(self, *, g_pi_sig: Signal, m_pi_sig: Signal, **kwargs):
+        super().__init__(**kwargs)
+        self._g_pi_sig = g_pi_sig
+        self._m_pi_sig = m_pi_sig
+        self._signals[g_pi_sig] = _AggregateSignalState(signal=g_pi_sig)
+        self._signals[m_pi_sig] = _AggregateSignalState(signal=m_pi_sig)
+    
+    def _calc_readback(self):
+        return calc_E(
+            self._signals[self._g_pi_sig].value,
+            self._signals[self._m_pi_sig].value,
+        )[0]
+
+
+def _step_scan_base(
+    *,
+    mono_grating: Any,
+    sim_kw: dict[str, Any],
+    inner_plan: PlanType,
+    plan_args: list[Any],
+    plan_kwargs: dict[str, Any],
+    record: bool = True,
+    motors: Optional[list[Any]] = None,
+    fake_daq: bool = False,
+    daq_cfg: dict[str, Any],
+) -> PlanType:
+    """
+    Common setup for mono step scans.
+
+    Parameters
+    ----------
+    mono_grating: Motor
+        The mono grating motor we're using
+    sim_kw: dict of str to any
+        Any relevent sim_kw returns from get_scan_hw
+    inner_plan: PlanType
+        An unopened plan that will be called with 
+        dets, *plan_args, **plan_kwargs
+    plan_args: list of Any
+        The args for the inner plan, omitting detectors
+    plan_kwargs: dict of str to any
+        The kwargs for the inner plan.
+    record: bool, optional
+        Whether or not to record the data in the daq. Default is "True".
+    motors: list of motors, optional
+        Motors to tell the DAQ about during the config step
+    fake_daq: bool, optional
+        If True, don't use the daq at all.
+    **daq_cfg: various, optional
+        Any standard DAQ config keyword, such as events or duration.
+    """
+    if motors is None:
+        motors = []
+    if fake_daq:
+        dets = []
+    else:
+        # Require a fully loaded DAQ object via hutch-python!
+        from hutch_python.db import daq
+        dets = [daq]
+        yield from bps.configure(
+            daq,
+            record=record,
+            motors=motors,
+            **daq_cfg,
+        )
+    energy_sig = MonoEnergySignal(
+        name="mono_energy",
+        g_pi_sig=mono_grating.user_readback,
+        m_pi_sig=sim_kw.get("pre_mirror_pos", scan_devices.pre_mirror_pos)
+    )
+    dets.append(energy_sig)
+    return (
+        yield from bpp.stage_wrapper(
+            energy_request_wrapper(
+                inner_plan(
+                    dets,
+                    *plan_args,
+                    **plan_kwargs,
+                ),
+                **sim_kw,
+            ),
+            [PlotDisableHelper()]
+        )
+    )
 
 
 def energy_step_scan(
@@ -980,21 +1106,13 @@ def energy_step_scan(
     ----------
     start_ev: number
         The lower-bound of the eV to scan.
-    
     stop_ev: number
         The upper-bound of the eV to scan.
-
     num: int
         The number of points to scan between start_ev and stop_ev,
         including the start and stop points.
-    
-    ev_bounds: list of numbers, keyword-only
-        Upper and lower bounds of the scan in ev.
-        Provide either ev_bounds or urad_bounds, but not both.
-
     record: bool, optional
         Whether or not to record the data in the daq. Default is "True".
-
     **daq_cfg: various, optional
         Any standard DAQ config keyword, such as events or duration.
     """
@@ -1006,33 +1124,29 @@ def energy_step_scan(
         fake_acr = True
         fake_daq = True
     mono_grating, sim_kw = get_scan_hw(
-        urad_bounds=[start_urad],
+        urad_bounds=(start_urad, stop_urad),
         fake_grating=fake_grating,
         fake_pre_mirror=fake_pre_mirror,
         fake_acr=fake_acr,
     )
-    if fake_daq:
-        dets = []
-    else:
-        # Require a fully loaded DAQ object via hutch-python!
-        from hutch_python.db import daq
-        dets = [daq]
-        yield from bps.configure(
-            daq,
-            record=record,
-            motors=[mono_grating],
-            **daq_cfg,
-        )
+
     return (
-        yield from energy_request_wrapper(
-            bp.scan(
-                dets,
+        yield from _step_scan_base(
+            mono_grating=mono_grating,
+            sim_kw=sim_kw,
+            inner_plan=bp.scan,
+            plan_args=[
                 mono_grating,
                 start_urad,
                 stop_urad,
-                num=num,
-            ),
-            **sim_kw,
+            ],
+            plan_kwargs={
+                "num": num,
+            },
+            record=record,
+            motors=[mono_grating],
+            fake_daq=fake_daq,
+            daq_cfg=daq_cfg,
         )
     )
 
@@ -1049,10 +1163,10 @@ def energy_list_scan(
     **daq_cfg,
 ) -> PlanType:
     """
-    Basic step scan of the grating mono coordinated with an ACR energy request.
+    Basic list scan of the grating mono coordinated with an ACR energy request.
 
-    This uses the default bp.scan behavior under-the-hood to facilitate
-    basic step scans using the energy calculations.
+    This uses the default bp.list_scan behavior under-the-hood to facilitate
+    basic list scans using the energy calculations.
 
     The energy request may be a vernier move or it may be an undulator move.
     The energy request will track the the grating movement.
@@ -1067,23 +1181,10 @@ def energy_list_scan(
 
     Parameters
     ----------
-    start_ev: number
-        The lower-bound of the eV to scan.
-    
-    stop_ev: number
-        The upper-bound of the eV to scan.
-
-    num: int
-        The number of points to scan between start_ev and stop_ev,
-        including the start and stop points.
-    
-    ev_bounds: list of numbers, keyword-only
-        Upper and lower bounds of the scan in ev.
-        Provide either ev_bounds or urad_bounds, but not both.
-
+    ev_points: list of numbers
+        The mono energies in eV to visit
     record: bool, optional
         Whether or not to record the data in the daq. Default is "True".
-
     **daq_cfg: various, optional
         Any standard DAQ config keyword, such as events or duration.
     """
@@ -1100,25 +1201,185 @@ def energy_list_scan(
         fake_pre_mirror=fake_pre_mirror,
         fake_acr=fake_acr,
     )
-    if fake_daq:
-        dets = []
-    else:
-        # Require a fully loaded DAQ object via hutch-python!
-        from hutch_python.db import daq
-        dets = [daq]
-        yield from bps.configure(
-            daq,
-            record=record,
-            motors=[mono_grating],
-            **daq_cfg,
-        )
+
     return (
-        yield from energy_request_wrapper(
-            bp.list_scan(
-                dets,
+        yield from _step_scan_base(
+            mono_grating=mono_grating,
+            sim_kw=sim_kw,
+            inner_plan=bp.list_scan,
+            plan_args=[
                 mono_grating,
                 urad_points,
-            ),
-            **sim_kw,
+            ],
+            plan_kwargs={},
+            record=record,
+            motors=[mono_grating],
+            fake_daq=fake_daq,
+            daq_cfg=daq_cfg,
+        )
+    )
+
+
+def energy_step_scan_nd(
+    start_ev: float,
+    stop_ev: float,
+    *args,
+    num: Optional[int] = None,
+    record: bool = True,
+    fake_grating: bool = False,
+    fake_pre_mirror: bool = False,
+    fake_acr: bool = False,
+    fake_daq: bool = False,
+    fake_all: bool = False,
+    **daq_cfg,
+) -> PlanType:
+    """
+    A multidimensional start, stop, number of points energy step scan.
+
+    We'll move the mono energy and each additional motor through the
+    range of points with equivalent number of steps.
+
+    The positional args should be
+    (mono_energy_start, mono_energy_stop)
+    followed by *args triplets of
+    (motor, start, stop)
+    with the number of points passed as as the last positional arg
+    or as an explicit keyword arg
+
+    The various "fake" arguments run test scans without the associated
+    real hardware:
+    - fake_grating: do not move the mono grating pitch
+    - fake_pre_mirror: do not each the real pre mirror PV for the calcs
+    - fake_acr: do not ask acr to change the energy, instead print it
+    - fake_daq: do not run the daq
+    - fake_all: do everything fake!
+
+    Parameters
+    ----------
+    start_ev: number
+        The lower-bound of the eV to scan.
+    stop_ev: number
+        The upper-bound of the eV to scan.
+    *args: see above
+        Additional motors to include in the step scan.
+    num: int
+        The number of points to scan between start_ev and stop_ev,
+        including the start and stop points.
+    record: bool, optional
+        Whether or not to record the data in the daq. Default is "True".
+    **daq_cfg: various, optional
+        Any standard DAQ config keyword, such as events or duration.
+    """
+    start_urad, stop_urad = calculate_bounds(ev_bounds=(start_ev, stop_ev))
+
+    if fake_all:
+        fake_grating = True
+        fake_pre_mirror = True
+        fake_acr = True
+        fake_daq = True
+    mono_grating, sim_kw = get_scan_hw(
+        urad_bounds=(start_urad, stop_urad),
+        fake_grating=fake_grating,
+        fake_pre_mirror=fake_pre_mirror,
+        fake_acr=fake_acr,
+    )
+    other_motors = []
+    for mot, _, _ in partition(3, args):
+        other_motors.append(mot)
+
+    return (
+        yield from _step_scan_base(
+            mono_grating=mono_grating,
+            sim_kw=sim_kw,
+            inner_plan=bp.scan,
+            plan_args=[
+                mono_grating,
+                start_urad,
+                stop_urad,
+            ] + list(args),
+            plan_kwargs={
+                "num": num,
+            },
+            record=record,
+            motors=[mono_grating] + other_motors,
+            fake_daq=fake_daq,
+            daq_cfg=daq_cfg,
+        )
+    )
+
+
+def energy_list_scan_nd(
+    ev_points: list[float],
+    *args,
+    record: bool = True,
+    fake_grating: bool = False,
+    fake_pre_mirror: bool = False,
+    fake_acr: bool = False,
+    fake_daq: bool = False,
+    fake_all: bool = False,
+    **daq_cfg,
+) -> PlanType:
+    """
+    ND list scan of the grating mono coordinated with an ACR energy request.
+
+    The positional args should be
+    ev_points
+    Followed by *args pairs of
+    (motor, motor_points)
+
+    This uses the default bp.list_scan behavior under-the-hood to facilitate
+    nd list scans using the energy calculations.
+
+    The energy request may be a vernier move or it may be an undulator move.
+    The energy request will track the the grating movement.
+
+    The various "fake" arguments run test scans without the associated
+    real hardware:
+    - fake_grating: do not move the mono grating pitch
+    - fake_pre_mirror: do not each the real pre mirror PV for the calcs
+    - fake_acr: do not ask acr to change the energy, instead print it
+    - fake_daq: do not run the daq
+    - fake_all: do everything fake!
+
+    Parameters
+    ----------
+    ev_points: list of numbers
+        The mono energies in eV to visit
+    record: bool, optional
+        Whether or not to record the data in the daq. Default is "True".
+    **daq_cfg: various, optional
+        Any standard DAQ config keyword, such as events or duration.
+    """
+    urad_points = calculate_bounds(ev_bounds=ev_points)
+
+    if fake_all:
+        fake_grating = True
+        fake_pre_mirror = True
+        fake_acr = True
+        fake_daq = True
+    mono_grating, sim_kw = get_scan_hw(
+        urad_bounds=urad_points,
+        fake_grating=fake_grating,
+        fake_pre_mirror=fake_pre_mirror,
+        fake_acr=fake_acr,
+    )
+    other_motors = []
+    for mot, _ in partition(2, args):
+        other_motors.append(mot)
+
+    return (
+        yield from _step_scan_base(
+            mono_grating=mono_grating,
+            sim_kw=sim_kw,
+            inner_plan=bp.list_scan,
+            plan_args=[
+                mono_grating,
+                urad_points,
+            ] + list(args),
+            plan_kwargs={},
+            record=record,
+            motors=[mono_grating] + other_motors,
+            fake_daq=fake_daq,
+            daq_cfg=daq_cfg,
         )
     )

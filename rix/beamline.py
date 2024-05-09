@@ -42,8 +42,8 @@ with safe_load('mono energy_scan'):
                                  energy_fly_scan_nd, energy_fly_scan_nd_list,
                                  energy_fly_scan_nd_grid,
                                  energy_fly_scan_nd_grid_list,
-                                 energy_step_scan,
-                                 energy_list_scan,
+                                 energy_step_scan, energy_step_scan_nd,
+                                 energy_list_scan, energy_list_scan_nd,
                                  setup_scan_devices as _setup_scan_devices)
     _setup_scan_devices()
 
@@ -91,7 +91,6 @@ with safe_load('table_formatters'):
 
     def set_table_format(fmt: str):
         LiveTable._FMT_MAP["number"] = fmt
-
 
     def set_table_format_scientific():
         set_table_format("g")
