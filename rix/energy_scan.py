@@ -13,17 +13,19 @@ from bluesky import plans as bp
 from bluesky import preprocessors as bpp
 from bluesky.utils import Msg
 from nabs import plans as nbp
-from ophyd.signal import AttributeSignal, EpicsSignal, EpicsSignalRO, Signal
+from ophyd.device import Component as Cpt
 from ophyd.ophydobj import OphydObject
+from ophyd.pseudopos import (PseudoPositioner, PseudoSingle,
+                             pseudo_position_argument, real_position_argument)
+from ophyd.signal import EpicsSignal, EpicsSignalRO, Signal
 from ophyd.status import Status
 from pcdsdevices.epics_motor import BeckhoffAxis
 from pcdsdevices.signal import AggregateSignal, _AggregateSignalState
 from pcdsdevices.sim import SlowMotor
 from psdaq.control.DaqControl import DaqControl
-from psdaq.control.BlueskyScan import BlueskyScan
 from toolz import partition
 
-from rix.rix_utilities import calc_pitch, calc_E
+from rix.rix_utilities import calc_E, calc_pitch
 
 logger = logging.getLogger(__name__)
 PlanType = Generator[Msg, Any, Any]
@@ -633,7 +635,8 @@ def get_scan_hw(
     fake_grating: bool = False,
     fake_pre_mirror: bool = False,
     fake_acr: bool = False,
-) -> tuple[BeckhoffAxis, dict]:
+    use_pseudo: bool = False,
+) -> tuple[BeckhoffAxis | GratingPitchEnergy, dict]:
     """
     Helper function for picking the hardware and kwargs.
 
@@ -642,24 +645,39 @@ def get_scan_hw(
     """
     # Modifiers for sim/test/fake scans
     sim_kw = {}
+    mpi_default = GratingPitchEnergy._default_m_pi_pos
     if fake_grating:
         # Initialize a fake grating motor
         if urad_bounds is not None:
             start_pos = urad_bounds[0]
         elif fake_pre_mirror:
-            start_pos = calc_pitch(ev_bounds[0], 143253)[0]
+            start_pos = calc_pitch(ev_bounds[0], mpi_default)[0]
         else:
             start_pos = calc_pitch(ev_bounds[0])[0]
-        mono_grating = FixSlowMotor(name='fake_mono', init_pos=start_pos-5)
-        sim_kw['grating_pos'] = mono_grating
+        if use_pseudo:
+            if fake_pre_mirror:
+                mono_grating = GPESim()
+            else:
+                mono_grating = GPESimGPI()
+            mono_grating.g_pi.set_current_position(start_pos-5)
+            sim_kw['grating_pos'] = mono_grating.g_pi
+        else:
+            mono_grating = FixSlowMotor(name='fake_mono', init_pos=start_pos-5)
+            sim_kw['grating_pos'] = mono_grating
     else:
         # Create the mono grating object if first time
         setup_scan_devices()
-        mono_grating = scan_devices.mono_grating
+        if use_pseudo:
+            if fake_pre_mirror:
+                mono_grating = GPESimMPI()
+            else:
+                mono_grating = scan_devices.energy_pseudo
+        else:
+            mono_grating = scan_devices.mono_grating
     if fake_pre_mirror:
         sim_kw['pre_mirror_pos'] = Signal(
             name='fake_pre_mirror_pos',
-            value=143253,  # live value on the day I made this
+            value=mpi_default,
         )
     if fake_acr:
         request = Signal(name='fake_request')
@@ -909,6 +927,7 @@ def setup_scan_devices():
             name='mono_g_pi',
         )
         scan_devices.pre_mirror_pos = EpicsSignalRO('SP1K1:MONO:MMS:M_PI.RBV')
+        scan_devices.energy_pseudo = GratingPitchEnergy()
 
 
 class FixSlowMotor(SlowMotor):
@@ -931,22 +950,27 @@ class FixSlowMotor(SlowMotor):
 
         def update_thread(positioner, goal):
             positioner._moving = True
+            step_time = 0.1
+            step_size = self.velocity.get() * step_time
             while positioner.position != goal and not self._stop:
-                if goal - positioner.position > 1:
-                    positioner._set_position(positioner.position + 1)
-                elif goal - positioner.position < -1:
-                    positioner._set_position(positioner.position - 1)
+                if goal - positioner.position > step_size:
+                    positioner._set_position(positioner.position + step_size)
+                elif goal - positioner.position < -step_size:
+                    positioner._set_position(positioner.position - step_size)
                 else:
                     positioner._set_position(goal)
                     positioner._done_moving(success=True)
                     return
-                time.sleep(0.1)
+                time.sleep(step_time)
             positioner._done_moving(success=False)
         self.stop()
         self._started_moving = True
         self._stop = False
-        t = threading.Thread(target=update_thread,
-                             args=(self, position))
+        t = threading.Thread(
+            target=update_thread,
+            args=(self, position),
+            daemon=True,
+        )
         t.start()
 
     def stop(self, success=True):
@@ -961,10 +985,10 @@ class PlotDisableHelper:
     particularly interesting.
     """
     parent = None
-    
+
     def stage(self) -> list[PlotDisableHelper]:
         try:
-            from hutch_python.db import bec
+            from hutch_python.db import bec  # type: ignore
             self.bec = bec
         except ImportError:
             self.enable_after = False
@@ -992,7 +1016,7 @@ class MonoEnergySignal(AggregateSignal):
         self._m_pi_sig = m_pi_sig
         self._signals[g_pi_sig] = _AggregateSignalState(signal=g_pi_sig)
         self._signals[m_pi_sig] = _AggregateSignalState(signal=m_pi_sig)
-    
+
     def _calc_readback(self):
         return calc_E(
             self._signals[self._g_pi_sig].value,
@@ -1000,9 +1024,63 @@ class MonoEnergySignal(AggregateSignal):
         )[0]
 
 
+class GratingPitchEnergy(PseudoPositioner):
+    """
+    When you move this motor to an eV value, it moves g_pi appropriately.
+    """
+    g_pi = Cpt(BeckhoffAxis, "SP1K1:MONO:MMS:G_PI", kind="hinted")
+    ev = Cpt(PseudoSingle, kind="hinted")
+    m_pi = Cpt(EpicsSignalRO, "SP1K1:MONO:MMS:M_PI.RBV", kind="normal")
+
+    _default_g_pi_pos = 150000
+    _default_m_pi_pos = 158000
+
+    def __init__(self):
+        self.mirror_pos = self._default_m_pi_pos
+        super().__init__("", name="mono")
+
+    @m_pi.sub_value
+    def _new_mirror_pos(self, value, **kwargs):
+        self.mirror_pos = value
+
+    @pseudo_position_argument
+    def forward(self, pseudo_pos):
+        return self.RealPosition(
+            g_pi=calc_pitch(pseudo_pos.ev, self.mirror_pos)[0]
+        )
+
+    @real_position_argument
+    def inverse(self, real_pos):
+        return self.PseudoPosition(
+            ev=calc_E(real_pos.g_pi, self.mirror_pos)[0]
+        )
+
+
+class GPESimGPI(GratingPitchEnergy):
+    g_pi = Cpt(FixSlowMotor, "", kind="hinted")
+
+    def __init__(self):
+        super().__init__()
+        self.g_pi.set_current_position(self._default_g_pi_pos)
+
+
+class GPESimMPI(GratingPitchEnergy):
+    m_pi = Cpt(Signal, kind="normal")
+
+    def __init__(self):
+        super().__init__()
+        self.m_pi.put(self._default_m_pi_pos)
+
+
+class GPESim(GPESimGPI, GPESimMPI):
+    # Avoid an ophyd multi-inheritance edge case
+    g_pi = GPESimGPI.g_pi
+    m_pi = GPESimMPI.m_pi
+
+
 def _step_scan_base(
     *,
-    mono_grating: Any,
+    mono_grating: GratingPitchEnergy,
     sim_kw: dict[str, Any],
     inner_plan: PlanType,
     plan_args: list[Any],
@@ -1022,7 +1100,7 @@ def _step_scan_base(
     sim_kw: dict of str to any
         Any relevent sim_kw returns from get_scan_hw
     inner_plan: PlanType
-        An unopened plan that will be called with 
+        An unopened plan that will be called with
         dets, *plan_args, **plan_kwargs
     plan_args: list of Any
         The args for the inner plan, omitting detectors
@@ -1043,7 +1121,7 @@ def _step_scan_base(
         dets = []
     else:
         # Require a fully loaded DAQ object via hutch-python!
-        from hutch_python.db import daq
+        from hutch_python.db import daq  # type: ignore
         dets = [daq]
         yield from bps.configure(
             daq,
@@ -1051,12 +1129,10 @@ def _step_scan_base(
             motors=motors,
             **daq_cfg,
         )
-    energy_sig = MonoEnergySignal(
-        name="mono_energy",
-        g_pi_sig=mono_grating.user_readback,
-        m_pi_sig=sim_kw.get("pre_mirror_pos", scan_devices.pre_mirror_pos)
+    yield from bps.null()
+    logger.info(
+        f"Starting mono step scan with m_pi at {mono_grating.m_pi.get()}"
     )
-    dets.append(energy_sig)
     return (
         yield from bpp.stage_wrapper(
             energy_request_wrapper(
@@ -1116,18 +1192,17 @@ def energy_step_scan(
     **daq_cfg: various, optional
         Any standard DAQ config keyword, such as events or duration.
     """
-    start_urad, stop_urad = calculate_bounds(ev_bounds=(start_ev, stop_ev))
-
     if fake_all:
         fake_grating = True
         fake_pre_mirror = True
         fake_acr = True
         fake_daq = True
     mono_grating, sim_kw = get_scan_hw(
-        urad_bounds=(start_urad, stop_urad),
+        ev_bounds=[start_ev],
         fake_grating=fake_grating,
         fake_pre_mirror=fake_pre_mirror,
         fake_acr=fake_acr,
+        use_pseudo=True,
     )
 
     return (
@@ -1137,14 +1212,14 @@ def energy_step_scan(
             inner_plan=bp.scan,
             plan_args=[
                 mono_grating,
-                start_urad,
-                stop_urad,
+                start_ev,
+                stop_ev,
             ],
             plan_kwargs={
                 "num": num,
             },
             record=record,
-            motors=[mono_grating],
+            motors=[mono_grating.g_pi, mono_grating.ev],
             fake_daq=fake_daq,
             daq_cfg=daq_cfg,
         )
@@ -1188,18 +1263,17 @@ def energy_list_scan(
     **daq_cfg: various, optional
         Any standard DAQ config keyword, such as events or duration.
     """
-    urad_points = calculate_bounds(ev_bounds=ev_points)
-
     if fake_all:
         fake_grating = True
         fake_pre_mirror = True
         fake_acr = True
         fake_daq = True
     mono_grating, sim_kw = get_scan_hw(
-        urad_bounds=urad_points,
+        ev_bounds=ev_points,
         fake_grating=fake_grating,
         fake_pre_mirror=fake_pre_mirror,
         fake_acr=fake_acr,
+        use_pseudo=True,
     )
 
     return (
@@ -1209,11 +1283,11 @@ def energy_list_scan(
             inner_plan=bp.list_scan,
             plan_args=[
                 mono_grating,
-                urad_points,
+                ev_points,
             ],
             plan_kwargs={},
             record=record,
-            motors=[mono_grating],
+            motors=[mono_grating.g_pi, mono_grating.ev],
             fake_daq=fake_daq,
             daq_cfg=daq_cfg,
         )
@@ -1270,18 +1344,17 @@ def energy_step_scan_nd(
     **daq_cfg: various, optional
         Any standard DAQ config keyword, such as events or duration.
     """
-    start_urad, stop_urad = calculate_bounds(ev_bounds=(start_ev, stop_ev))
-
     if fake_all:
         fake_grating = True
         fake_pre_mirror = True
         fake_acr = True
         fake_daq = True
     mono_grating, sim_kw = get_scan_hw(
-        urad_bounds=(start_urad, stop_urad),
+        ev_bounds=[start_ev],
         fake_grating=fake_grating,
         fake_pre_mirror=fake_pre_mirror,
         fake_acr=fake_acr,
+        use_pseudo=True,
     )
     other_motors = []
     for mot, _, _ in partition(3, args):
@@ -1294,14 +1367,14 @@ def energy_step_scan_nd(
             inner_plan=bp.scan,
             plan_args=[
                 mono_grating,
-                start_urad,
-                stop_urad,
+                start_ev,
+                stop_ev,
             ] + list(args),
             plan_kwargs={
                 "num": num,
             },
             record=record,
-            motors=[mono_grating] + other_motors,
+            motors=[mono_grating.g_pi, mono_grating.ev] + other_motors,
             fake_daq=fake_daq,
             daq_cfg=daq_cfg,
         )
@@ -1350,18 +1423,17 @@ def energy_list_scan_nd(
     **daq_cfg: various, optional
         Any standard DAQ config keyword, such as events or duration.
     """
-    urad_points = calculate_bounds(ev_bounds=ev_points)
-
     if fake_all:
         fake_grating = True
         fake_pre_mirror = True
         fake_acr = True
         fake_daq = True
     mono_grating, sim_kw = get_scan_hw(
-        urad_bounds=urad_points,
+        ev_bounds=ev_points,
         fake_grating=fake_grating,
         fake_pre_mirror=fake_pre_mirror,
         fake_acr=fake_acr,
+        use_pseudo=True,
     )
     other_motors = []
     for mot, _ in partition(2, args):
@@ -1374,11 +1446,11 @@ def energy_list_scan_nd(
             inner_plan=bp.list_scan,
             plan_args=[
                 mono_grating,
-                urad_points,
+                ev_points,
             ] + list(args),
             plan_kwargs={},
             record=record,
-            motors=[mono_grating] + other_motors,
+            motors=[mono_grating.g_pi, mono_grating.ev] + other_motors,
             fake_daq=fake_daq,
             daq_cfg=daq_cfg,
         )
