@@ -24,8 +24,8 @@ with safe_load('LCLS-II daq step_value'):
     step_value = SynAxis(name=ControlDef.STEP_VALUE)
 
 
-with safe_load('FS14 lxt, txt, lxt_ttc, las_wp1, las_wp2'):
-    from rix.lxt import lxt, txt, lxt_ttc, las_wp1, las_wp2
+with safe_load('lxt, txt, lxt_ttc, las_wp1, las_wp2'):
+    from rix.lxt import lxt, txt, lxt_ttc, las_wp1, las_wp2, shift_t0, get_timing
 
 
 with safe_load('CAM Recorder'):
@@ -97,4 +97,49 @@ with safe_load('table_formatters'):
 
     def set_table_format_basic():
         set_table_format("f")
+
+with safe_load('qrix arm motion'):
+    from pcdsdevices.epics_motor import BeckhoffAxis
+    qrix_sc_ssl_mms = BeckhoffAxis('QRIX:SC:SSL:MMS', name='qrix_sc_ssl_mms')
+    qrix_sa_mms_2theta = BeckhoffAxis('QRIX:SA:MMS:2Theta', name='qrix_sa_mms_2theta')
+    qrix_df_mms_y1 = BeckhoffAxis('QRIX:DF:MMS:Y1', name='qrix_df_mms_y1')
+    qrix_df_mms_y2 = BeckhoffAxis('QRIX:DF:MMS:Y2', name='qrix_df_mms_y2')
+    qrix_df_mms_y3 = BeckhoffAxis('QRIX:DF:MMS:Y3', name='qrix_df_mms_y3')
+    qrix_diff_mms_x = BeckhoffAxis('QRIX:DIFF:MMS:X', name='qrix_diff_mms_x')
+    qrix_diff_mms_y = BeckhoffAxis('QRIX:DIFF:MMS:Y', name='qrix_diff_mms_y')
+    qrix_diff_mms_z = BeckhoffAxis('QRIX:DIFF:MMS:Z', name='qrix_diff_mms_z')
+    qrix_diff_mms_theta = BeckhoffAxis('QRIX:DIFF:MMS:THETA', name='qrix_diff_mms_theta')
+    qrix_diff_mms_2theta = BeckhoffAxis('QRIX:DIFF:MMS:2THETA', name='qrix_diff_mms_2theta')
+    qrix_diff_mms_dety = BeckhoffAxis('QRIX:DIFF:MMS:DETY', name='qrix_diff_mms_dety')
+    qrix_diff_mms_phi = BeckhoffAxis('QRIX:DIFF:MMS:PHI', name='qrix_diff_mms_phi')
+    qrix_diff_mms_chi = BeckhoffAxis('QRIX:DIFF:MMS:CHI', name='qrix_diff_mms_chi')
+    qrix_da_mms_y1 = BeckhoffAxis('QRIX:DA:MMS:Y1', name='qrix_da_mms_y1')
+    qrix_da_mms_y2 = BeckhoffAxis('QRIX:DA:MMS:Y2', name='qrix_da_mms_y2')
+    qrix_da_mms_z = BeckhoffAxis('QRIX:DA:MMS:Z', name='qrix_da_mms_z')
+    qrix_dc_mms_x = BeckhoffAxis('QRIX:DC:MMS:X', name='qrix_dc_mms_x')
+    qrix_dc_mms_ry = BeckhoffAxis('QRIX:DC:MMS:Ry', name='qrix_dc_mms_ry')
+    qrix_dc_mms_z = BeckhoffAxis('QRIX:DC:MMS:Z', name='qrix_dc_mms_z')
+    qrix_det_mms_rot = BeckhoffAxis('QRIX:DET:MMS:ROT', name='qrix_det_mms_rot')
+    qrix_opt_mms_y1 = BeckhoffAxis('QRIX:OPT:MMS:Y1', name='qrix_opt_mms_y1')
+    qrix_opt_mms_y2 = BeckhoffAxis('QRIX:OPT:MMS:Y2', name='qrix_opt_mms_y2')
+    qrix_opt_mms_y3 = BeckhoffAxis('QRIX:OPT:MMS:Y3', name='qrix_opt_mms_y3')
+    qrix_g_mms_rx = BeckhoffAxis('QRIX:G:MMS:Rx', name='qrix_g_mms_rx')
+    qrix_pm_mms_rz = BeckhoffAxis('QRIX:PM:MMS:Rz', name='qrix_pm_mms_rz')
+    qrix_g_mms_x = BeckhoffAxis('QRIX:G:MMS:X', name='qrix_g_mms_x')
+    qrix_pm_mms_x1 = BeckhoffAxis('QRIX:PM:MMS:X1', name='qrix_pm_mms_x1')
+    qrix_pm_mms_x2 = BeckhoffAxis('QRIX:PM:MMS:X2', name='qrix_pm_mms_x2')
+    qrix_cryo_mms_x = BeckhoffAxis('QRIX:CRYO:MMS:X', name='qrix_cryo_mms_x')
+    qrix_cryo_mms_y = BeckhoffAxis('QRIX:CRYO:MMS:Y', name='qrix_cryo_mms_y')
+    qrix_cryo_mms_z = BeckhoffAxis('QRIX:CRYO:MMS:Z', name='qrix_cryo_mms_z')
+    qrix_cryo_mms_rot = BeckhoffAxis('QRIX:CRYO:MMS:ROT', name='qrix_cryo_mms_rot')
+    qrix_las_mms_vis = BeckhoffAxis('QRIX:LAS:MMS:VIS', name='qrix_las_mms_vis')
+    qrix_diag_mms_h = BeckhoffAxis('QRIX:DIAG:MMS:H', name='qrix_diag_mms_h')
+    qrix_diag_mms_v = BeckhoffAxis('QRIX:DIAG:MMS:V', name='qrix_diag_mms_v')
+    qrix_sds_mms_x = BeckhoffAxis('QRIX:SDS:MMS:X', name='qrix_sds_mms_x')
+    qrix_sds_mms_y = BeckhoffAxis('QRIX:SDS:MMS:Y', name='qrix_sds_mms_y')
+    qrix_sds_mms_z = BeckhoffAxis('QRIX:SDS:MMS:Z', name='qrix_sds_mms_z')
+    qrix_sds_mms_rot_v = BeckhoffAxis('QRIX:SDS:MMS:ROT_V', name='qrix_sds_mms_rot_v')
+    qrix_sds_mms_rot_h = BeckhoffAxis('QRIX:SDS:MMS:ROT_H', name='qrix_sds_mms_rot_h')
+    qrix_sds_mms_h = BeckhoffAxis('QRIX:SDS:MMS:H', name='qrix_sds_mms_h')
+
 
