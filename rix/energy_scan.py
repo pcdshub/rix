@@ -1310,6 +1310,11 @@ def energy_step_scan_nd(
     """
     A multidimensional start, stop, number of points energy step scan.
 
+    This uses the underlying behavior from bp.scan for simultaneous
+    1D trajectories across N motors.
+
+    For the ND mesh/grid version of this scan, see energy_step_scan_nd_grid.
+
     We'll move the mono energy and each additional motor through the
     range of points with equivalent number of steps.
 
@@ -1319,6 +1324,9 @@ def energy_step_scan_nd(
     (motor, start, stop)
     with the number of points passed as as the last positional arg
     or as an explicit keyword arg
+
+    The energy request may be a vernier move or it may be an undulator move.
+    The energy request will track the the grating movement.
 
     The various "fake" arguments run test scans without the associated
     real hardware:
@@ -1336,6 +1344,7 @@ def energy_step_scan_nd(
         The upper-bound of the eV to scan.
     *args: see above
         Additional motors to include in the step scan.
+        These should be (motor, start, stop) triples.
     num: int
         The number of points to scan between start_ev and stop_ev,
         including the start and stop points.
@@ -1403,6 +1412,8 @@ def energy_list_scan_nd(
     This uses the default bp.list_scan behavior under-the-hood to facilitate
     nd list scans using the energy calculations.
 
+    For the ND mesh/grid version of this scan, see energy_list_scan_nd_grid
+
     The energy request may be a vernier move or it may be an undulator move.
     The energy request will track the the grating movement.
 
@@ -1418,6 +1429,9 @@ def energy_list_scan_nd(
     ----------
     ev_points: list of numbers
         The mono energies in eV to visit
+    *args: see above
+        Additional motors to include in the step scan.
+        These should be (motor, point_list) pairs.
     record: bool, optional
         Whether or not to record the data in the daq. Default is "True".
     **daq_cfg: various, optional
@@ -1449,6 +1463,197 @@ def energy_list_scan_nd(
                 ev_points,
             ] + list(args),
             plan_kwargs={},
+            record=record,
+            motors=[mono_grating.g_pi, mono_grating.ev] + other_motors,
+            fake_daq=fake_daq,
+            daq_cfg=daq_cfg,
+        )
+    )
+
+
+def energy_step_scan_nd_grid(
+    start_ev: float,
+    stop_ev: float,
+    num_ev: int,
+    *args,
+    snake_axes: bool = False,
+    record: bool = True,
+    fake_grating: bool = False,
+    fake_pre_mirror: bool = False,
+    fake_acr: bool = False,
+    fake_daq: bool = False,
+    fake_all: bool = False,
+    **daq_cfg,
+) -> PlanType:
+    """
+    A multidimensional grid start, stop, number of points energy step scan.
+
+    This uses the underlying behavior from bp.grid_scan for multidemensional
+    mesh trajectories across N motors.
+
+    We'll move the mono energy and each additional motor through the
+    range of points with independent number of steps along each dimension.
+
+    The mono will be the "slow" motor in the grid that moves the fewest number of times.
+    The motors should be provided in order from slowest to fastest for maximum
+    scan efficiency.
+
+    For example, if we have the mono, motor2, and motor3:
+    - The mono will move to each of its points once
+    - For each mono step, motor2 will move to each point once
+    - For each motor2 step, motor3 will move to each point once
+
+    The positional args should be
+    (mono_energy_start, mono_energy_stop, mono_number_of_points)
+    followed by *args quadruplets of
+    (motor, start, stop, num)
+
+    The energy request may be a vernier move or it may be an undulator move.
+    The energy request will track the the grating movement.
+    
+    The various "fake" arguments run test scans without the associated
+    real hardware:
+    - fake_grating: do not move the mono grating pitch
+    - fake_pre_mirror: do not each the real pre mirror PV for the calcs
+    - fake_acr: do not ask acr to change the energy, instead print it
+    - fake_daq: do not run the daq
+    - fake_all: do everything fake!
+
+    Parameters
+    ----------
+    start_ev: number
+        The lower-bound of the eV to scan.
+    stop_ev: number
+        The upper-bound of the eV to scan.
+    num_ev: the number of points to include for the ev trajectory.
+    *args: see above
+        Additional motors to include in the step scan.
+        These should be (motor, start, stop, num) quadruples.
+    snake_axes: bool
+        If True, scan up and down the secondary axes in both directions, repeating endpoints.
+        If False (default), return all the way to the bottom of the scan ranges for
+        each new grid step, scanning up in the same direction for each new mesh trajectory.
+    record: bool, optional
+        Whether or not to record the data in the daq. Default is "True".
+    **daq_cfg: various, optional
+        Any standard DAQ config keyword, such as events or duration.
+    """
+    if fake_all:
+        fake_grating = True
+        fake_pre_mirror = True
+        fake_acr = True
+        fake_daq = True
+    mono_grating, sim_kw = get_scan_hw(
+        ev_bounds=[start_ev],
+        fake_grating=fake_grating,
+        fake_pre_mirror=fake_pre_mirror,
+        fake_acr=fake_acr,
+        use_pseudo=True,
+    )
+    other_motors = []
+    for mot, _, _, _ in partition(4, args):
+        other_motors.append(mot)
+
+    return (
+        yield from _step_scan_base(
+            mono_grating=mono_grating,
+            sim_kw=sim_kw,
+            inner_plan=bp.grid_scan,
+            plan_args=[
+                mono_grating,
+                start_ev,
+                stop_ev,
+                num_ev,
+            ] + list(args),
+            plan_kwargs={
+                "snake_axes": snake_axes,
+            },
+            record=record,
+            motors=[mono_grating.g_pi, mono_grating.ev] + other_motors,
+            fake_daq=fake_daq,
+            daq_cfg=daq_cfg,
+        )
+    )
+
+
+def energy_list_scan_nd_grid(
+    ev_points: list[float],
+    *args,
+    snake_axes: bool = False,
+    record: bool = True,
+    fake_grating: bool = False,
+    fake_pre_mirror: bool = False,
+    fake_acr: bool = False,
+    fake_daq: bool = False,
+    fake_all: bool = False,
+    **daq_cfg,
+) -> PlanType:
+    """
+    ND list scan of the grating mono coordinated with an ACR energy request.
+
+    The positional args should be
+    ev_points
+    Followed by *args pairs of
+    (motor, motor_points)
+
+    This uses the default bp.list_grid_scan behavior under-the-hood to facilitate
+    nd list scans over a mesh using the energy calculations.
+
+    The energy request may be a vernier move or it may be an undulator move.
+    The energy request will track the the grating movement.
+
+    The various "fake" arguments run test scans without the associated
+    real hardware:
+    - fake_grating: do not move the mono grating pitch
+    - fake_pre_mirror: do not each the real pre mirror PV for the calcs
+    - fake_acr: do not ask acr to change the energy, instead print it
+    - fake_daq: do not run the daq
+    - fake_all: do everything fake!
+
+    Parameters
+    ----------
+    ev_points: list of numbers
+        The mono energies in eV to visit
+    *args: see above
+        Additional motors to include in the step scan.
+        These should be (motor, point_list) pairs.
+    snake_axes: bool
+        If True, scan up and down the secondary axes in both directions, repeating endpoints.
+        If False (default), return all the way to the bottom of the scan ranges for
+        each new grid step, scanning up in the same direction for each new mesh trajectory.
+    record: bool, optional
+        Whether or not to record the data in the daq. Default is "True".
+    **daq_cfg: various, optional
+        Any standard DAQ config keyword, such as events or duration.
+    """
+    if fake_all:
+        fake_grating = True
+        fake_pre_mirror = True
+        fake_acr = True
+        fake_daq = True
+    mono_grating, sim_kw = get_scan_hw(
+        ev_bounds=ev_points,
+        fake_grating=fake_grating,
+        fake_pre_mirror=fake_pre_mirror,
+        fake_acr=fake_acr,
+        use_pseudo=True,
+    )
+    other_motors = []
+    for mot, _ in partition(2, args):
+        other_motors.append(mot)
+
+    return (
+        yield from _step_scan_base(
+            mono_grating=mono_grating,
+            sim_kw=sim_kw,
+            inner_plan=bp.list_grid_scan,
+            plan_args=[
+                mono_grating,
+                ev_points,
+            ] + list(args),
+            plan_kwargs={
+                "snake_axes": snake_axes,
+            },
             record=record,
             motors=[mono_grating.g_pi, mono_grating.ev] + other_motors,
             fake_daq=fake_daq,
