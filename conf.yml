@@ -13,3 +13,5 @@ daq_host: drp-srcf-cmp004
 
 daq_platform:
   default: 2
+
+session_timer: 172800
