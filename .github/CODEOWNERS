@@ -1,0 +1,14 @@
+# default group
+* @pcdshub/rix-members
+
+# language-specific group(s)
+## PYTHON files
+*.py @pcdshub/python-reviewers @pcdshub/rix-members
+*.pyi @pcdshub/python-reviewers @pcdshub/rix-members
+*.pyc @pcdshub/python-reviewers @pcdshub/rix-members
+*.pyw @pcdshub/python-reviewers @pcdshub/rix-members
+*.pyx @pcdshub/python-reviewers @pcdshub/rix-members
+*.pyd @pcdshub/python-reviewers @pcdshub/rix-members
+
+# github folder holds administrative files
+.github/** @pcdshub/software-admin
