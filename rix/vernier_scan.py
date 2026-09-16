@@ -159,8 +159,8 @@ def daq_interpolation_mono_vernier_duration_scan(
     """
 
     daq_control = DaqControl(
-        host='drp-neh-ctl001',
-        platform=2,
+        host='drp-srcf-mon002',  # roberttk 2024/10/31
+        platform=0,  # roberttk 24/10/23: platform should be 0, 2 does not exist
         timeout=1000,
         )
 

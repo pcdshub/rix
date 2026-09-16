@@ -8,8 +8,8 @@ import pandas as pd
 
 ##lxt = LaserTiming('LAS:FS11', name='lxt')
 #lxt = LaserTiming('LAS:FS14', name='lxt')
-lxt = Lcls2LaserTiming('LAS:LHN:LLG2:01', name='lxt') #this is for lcls2
-txt = delay_instance_factory('LM2K2:COM_MP2_DLY1', motor_class=SmarAct,
+lxt = Lcls2LaserTiming('LAS:LHN:LLG2:02', name='lxt') #this is for lcls2
+txt = delay_instance_factory('LM1K2:COM_MP2_DLY1', motor_class=SmarAct,
                              egu='s', n_bounces=16, name='txt')
 
 las_wp1 = SmarAct('LM2K2:INJ_MP1_ATT1_WP1', name='las_wp1')

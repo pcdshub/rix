@@ -9,7 +9,8 @@ load: rix.beamline
 # DAQ interface configuration
 daq_type: lcls2
 
-daq_host: drp-srcf-cmp004
+daq_host: drp-srcf-mon002
 
 daq_platform:
-  default: 2
+  default: 0
+  #default: 2

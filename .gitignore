@@ -108,3 +108,8 @@ ENV/
 
 # vim
 *.swp
+*~
+
+# core dumps
+core.*
+

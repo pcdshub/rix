@@ -25,8 +25,8 @@ with safe_load('LCLS-II daq step_value'):
 
 
 with safe_load('lxt, txt, lxt_ttc, las_wp1, las_wp2'):
-    from rix.lxt import lxt, txt, lxt_ttc, las_wp1, las_wp2, shift_t0, get_timing
-
+    #from rix.lxt import lxt, txt, lxt_ttc, las_wp1, las_wp2, shift_t0, get_timing
+    from rix.lxt2 import lxt, txt, lxt_ttc, las_wp1, las_wp2, shift_t0, get_timing, lxt_pvs, txts, set_lxt, set_txt, global_instrument
 
 with safe_load('CAM Recorder'):
     from rix.cam_to_file import h5_img_collect, ppm_scan
@@ -66,6 +66,10 @@ with safe_load('mono energy scan devices'):
     vernier_energy = energy_request
 
 
+with safe_load('Beam Energy Request'):
+    from rix.rix_photon_energy import hf_w, hf_2w, hf_w2w, hf_w3w, hf_w_status, hf_2w_status, hf, pump_probe_scan
+
+
 with safe_load('laser lens motors'):
     from pcdsdevices.epics_motor import SmarAct
     lm2k2_ejx_mp1_ls1_lm3 = SmarAct('LM2K2:EJX_MP1_LS1_LM3', name='lm2k2_ejx_mp1_ls1_lm3')
@@ -73,19 +77,22 @@ with safe_load('laser lens motors'):
     lm2k2_inj_mp1_att1_wp1 = SmarAct('LM2K2:INJ_MP1_ATT1_WP1', name='lm2k2_inj_mp1_att1_wp1')
     lm2k2_inj_mp1_att1_wp2 = SmarAct('LM2K2:INJ_MP1_ATT1_WP2', name='lm2k2_inj_mp1_att1_wp2')
     lm2k2_ejx_mp1_s41 = SmarAct('LM2K2:EJX_MP1_S41:M1', name='lm2k2_ejx_mp1_s41')
-
+    lm1k2_ejx_mp1_ls1_lm2 = SmarAct('LM1K2:EJX_MP1_LS1_LM2', name='lm1k2_ejx_mp1_ls1_lm2')
+    lm1k2_ejx_mp1_ls1_lm3 = SmarAct('LM1K2:EJX_MP1_LS1_LM3', name='lm1k2_ejx_mp1_ls1_lm3')
+    lm1k2_opa_mp1_dly1 = SmarAct('LM1K2:OPA_MP1_DLY1', name='lm1k2_opa_mp1_dly1')
+    qrix_las_wp1 = SmarAct('LM1K2:INJ_MP1_ATT1_WP1', name='qrix_las_wp1')
 
 with safe_load('continous scan'):
     from rix.continuous_scan import continuous_scan
 
 with safe_load('rix beamline script utilities'):
-    from rix.rix_utilities import *
+    from rix.ps_users.rix_utilities import *
 
 with safe_load('chemrixs script utilities'):
-    from rix.chemrixs_utilities import *
+    from rix.ps_users.chemrixs_utilities import *
 
 with safe_load('qrixs script utilities'):
-    from rix.qrixs_utilities import *
+    from rix.ps_users.qrixs_utilities import *
 
 with safe_load('table_formatters'):
     from bluesky.callbacks.core import LiveTable
@@ -142,5 +149,19 @@ with safe_load('qrix arm motion'):
     qrix_sds_mms_rot_v = BeckhoffAxis('QRIX:SDS:MMS:ROT_V', name='qrix_sds_mms_rot_v')
     qrix_sds_mms_rot_h = BeckhoffAxis('QRIX:SDS:MMS:ROT_H', name='qrix_sds_mms_rot_h')
     qrix_sds_mms_h = BeckhoffAxis('QRIX:SDS:MMS:H', name='qrix_sds_mms_h')
+    from pcdsdevices.slits import BeckhoffSlits
+    qrix_detsl = BeckhoffSlits('QRIX:DETSL', name='qrix_detsl')
+    qrix_optsl = BeckhoffSlits('QRIX:OPTSL', name='qrix_optsl')
 
+
+with safe_load('qrixs lakeshore'):
+    from ophyd.signal import EpicsSignal
+    qrix_ls_set_temp_loop_1 = EpicsSignal('QRIX:CRYO:LS336:01:PUT_SOLL_1')
+    qrix_ls_set_temp_loop_2 = EpicsSignal('QRIX:CRYO:LS336:01:PUT_SOLL_2')
+    qrix_ls_heater_output_1 = EpicsSignal('QRIX:CRYO:LS336:01:GET_HTR_1')
+    qrix_ls_heater_output_2 = EpicsSignal('QRIX:CRYO:LS336:01:GET_HTR_2')
+    qrix_ls_input_a_temp = EpicsSignal('QRIX:CRYO:LS336:01:GET_TEMP_A')
+    qrix_ls_input_b_temp = EpicsSignal('QRIX:CRYO:LS336:01:GET_TEMP_B')
+    qrix_ls_input_c_temp = EpicsSignal('QRIX:CRYO:LS336:01:GET_TEMP_C')
+    qrix_ls_input_d_temp = EpicsSignal('QRIX:CRYO:LS336:01:GET_TEMP_D')
 

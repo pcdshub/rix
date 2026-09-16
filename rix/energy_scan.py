@@ -25,7 +25,7 @@ from pcdsdevices.sim import SlowMotor
 from psdaq.control.DaqControl import DaqControl
 from toolz import partition
 
-from rix.rix_utilities import calc_E, calc_pitch
+from rix.ps_users.rix_utilities import calc_E, calc_pitch
 
 logger = logging.getLogger(__name__)
 PlanType = Generator[Msg, Any, Any]
@@ -842,8 +842,8 @@ class DaqHelper:
     """
     def __init__(
         self,
-        host: str = 'drp-srcf-cmp004',
-        platform: int = 2,
+        host: str = 'drp-srcf-mon002',  # roberttk 24/10/31, changed at cog's request
+        platform: int = 0,  # roberttk 24/10/23, platform 2 does not exist
         timeout: int = 1000,
         record: Optional[bool] = None,
     ):
